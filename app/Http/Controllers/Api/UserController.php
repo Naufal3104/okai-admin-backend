@@ -37,4 +37,22 @@ class UserController extends Controller
             'message' => 'Email atau kata sandi tidak valid.'
         ], 401);
     }
+
+    public function logout(Request $request)
+    {
+        // 1. Mematikan sesi pengguna saat ini di sisi server
+        Auth::guard('web')->logout();
+
+        // 2. Menghancurkan seluruh data sesi agar tidak bisa dipulihkan
+        $request->session()->invalidate();
+
+        // 3. Membuat token keamanan baru untuk mencegah serangan pembajakan
+        $request->session()->regenerateToken();
+
+        // 4. Memberikan konfirmasi ke React bahwa proses pemutusan berhasil
+        return response()->json([
+            'success' => true,
+            'message' => 'Berhasil keluar dengan aman.'
+        ], 200);
+    }
 }
