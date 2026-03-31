@@ -5,35 +5,118 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Products;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class ProductController extends Controller
 {
+    // 1. Ambil Semua Data (Index)
     public function index()
     {
-        // 1. Ambil semua data produk dari database, urutkan dari yang terbaru
         $rawProducts = Products::orderBy('id', 'desc')->get();
 
-        // 2. Format ulang datanya agar sesuai dengan harapan React Anda
         $formattedProducts = $rawProducts->map(function ($product) {
             return [
                 'id' => $product->id,
-                // Membuat SKU otomatis berdasarkan ID produk
-                'sku' => 'OK-' . str_pad($product->id, 5, '0', STR_PAD_LEFT), 
+                'sku' => $product->sku ?? 'NO-SKU', 
                 'name' => $product->name,
-                'category' => 'General', // Nilai bawaan karena belum ada di DB
-                // Mengubah angka 850000 menjadi format Rp 850.000
-                'price' => 'Rp ' . number_format($product->price, 0, ',', '.'), 
+                'category' => $product->category ?? 'General',
+                'price' => $product->price,
                 'stock' => $product->stock,
-                'warehouse' => 'Gudang Utama (Surabaya)', // Nilai bawaan
-                // Menerjemahkan is_active (1/0) menjadi Published/Draft
-                'status' => $product->is_active ? 'Published' : 'Draft', 
+                'warehouse' => $product->warehouse ?? 'Gudang Utama',
+                'status' => $product->is_active ? 'Published' : 'Draft',
             ];
         });
 
-        // 3. Kirim ke React
         return response()->json([
             'success' => true,
             'data' => $formattedProducts
+        ], 200);
+    }
+
+    // 2. Simpan Produk Baru (Store)
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'sku' => 'required|string|unique:products,sku', // Validasi agar SKU tidak kembar
+            'category' => 'required|string',
+            'warehouse' => 'required|string',
+            'price' => 'required|numeric',
+            'stock' => 'required|integer',
+            'description' => 'nullable|string',
+            'image_url' => 'nullable|string',
+            'is_active' => 'boolean'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $product = Products::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Produk berhasil ditambahkan!',
+            'data' => $product
+        ], 201);
+    }
+
+        // Tambahkan di dalam ProductController
+    public function show($id)
+    {
+        $product = Products::find($id);
+
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'Produk tidak ditemukan'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $product
+        ], 200);
+    }
+
+    // 3. Update Produk (Update)
+    public function update(Request $request, $id)
+    {
+        $product = Products::find($id);
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'Produk tidak ditemukan'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'sometimes|required|string|max:255',
+            'sku' => 'sometimes|required|string|unique:products,sku,'.$id, // Abaikan SKU milik sendiri saat update
+            'category' => 'sometimes|required|string',
+            'warehouse' => 'sometimes|required|string',
+            'price' => 'sometimes|required|numeric',
+            'stock' => 'sometimes|required|integer',
+            'is_active' => 'boolean'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $product->update($request->all());
+
+        return response()->json(['success' => true, 'message' => 'Produk diperbarui!', 'data' => $product], 200);
+    }
+
+    // 4. Hapus Produk (Destroy)
+    public function destroy($id)
+    {
+        $product = Products::find($id);
+
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'Produk tidak ditemukan'], 404);
+        }
+
+        $product->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Produk berhasil dihapus!'
         ], 200);
     }
 }
