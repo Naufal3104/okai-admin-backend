@@ -13,13 +13,13 @@ return new class extends Migration
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
-            $table->string('sku')->unique();
+            $table->string('sku', 50)->unique()->nullable();
             $table->string('name');
-            $table->string('category')->default('General');
+            $table->string('category', 100)->default('General');
             $table->text('description')->nullable();
-            $table->decimal('price', 10, 2);
+            $table->decimal('price', 10, 2)->nullable();
             $table->integer('stock')->default(0);
-            $table->string('warehouse')->default('Gudang Utama(Surabaya)');
+            $table->string('warehouse', 100)->default('Gudang Utama (Surabaya)');
             $table->string('image_url')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();

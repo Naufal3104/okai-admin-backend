@@ -8,9 +8,17 @@ use Illuminate\Database\Eloquent\Model;
 class Products extends Model
 {
     use HasFactory;
+    protected $table = 'products';
 
-    protected $fillable = [
-        'name', 'description', 'price', 'stock', 'image_url', 'is_active',
-    'sku', 'category', 'warehouse'
-    ];
+    protected $fillable = ['sku', 'name', 'category', 'description', 'price', 'stock', 'warehouse', 'image_url', 'is_active'];
+
+    // Relasi: Satu produk bisa ada di banyak gudang
+    public function warehouseStocks() {
+        return $this->hasMany(ProductWarehouses::class, 'id_product');
+    }
+
+    // Relasi: Produk sering muncul di banyak item pesanan
+    public function orderItems() {
+        return $this->hasMany(OrderItems::class, 'product_id');
+    }
 }

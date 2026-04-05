@@ -11,7 +11,6 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
-    use HasRoles;
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
@@ -47,5 +46,14 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function orders() {
+        return $this->hasMany(Orders::class, 'user_id');
+    }
+
+    // Relasi: Satu user bisa terdaftar sebagai affiliate
+    public function affiliate() {
+        return $this->hasOne(Affiliates::class, 'user_id');
     }
 }

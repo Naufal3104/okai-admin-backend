@@ -12,12 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('affiliate_commissions', function (Blueprint $table) {
-            $table->foreignId('order_id')->constrained('orders')->onDelete('cascade');
-            $table->foreignId('affiliate_id')->constrained('affiliates')->onDelete('cascade');
-            $table->decimal('commission_amount', 10, 2);
+            $table->id();
+            $table->foreignId('order_id')->nullable()->constrained('orders')->onDelete('cascade');
+            $table->foreignId('affiliate_id')->nullable()->constrained('affiliates')->onDelete('cascade');
+            $table->decimal('commission_amount', 10, 2)->nullable();
             $table->enum('status', ['pending', 'approved', 'paid'])->default('pending');
             $table->timestamps();
-            $table->primary(['order_id', 'affiliate_id']);
         });
     }
 

@@ -13,12 +13,14 @@ return new class extends Migration
     {
         Schema::create('affiliates', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
-            $table->string('phone');
-            $table->string('social_media')->nullable();
-            $table->string('affiliate_code', 100)->unique();
-            $table->decimal('commission_rate', 5, 2);
-            $table->enum('status', ['pending','active','rejected','inactive'])->default('pending');
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null');
+            $table->string('full_name', 100)->nullable();
+            $table->string('email', 100)->nullable();
+            $table->string('phone', 20)->nullable();
+            $table->string('social_media', 100)->nullable();
+            $table->string('affiliate_code', 50)->unique()->nullable();
+            $table->decimal('commission_rate', 5, 2)->default(10.00);
+            $table->enum('status', ['pending', 'active', 'rejected', 'inactive'])->default('pending');
             $table->timestamps();
         });
     }
