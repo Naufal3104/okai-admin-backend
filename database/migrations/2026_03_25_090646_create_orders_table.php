@@ -17,7 +17,7 @@ return new class extends Migration
             $table->integer('affiliate_id')->nullable();
             $table->decimal('total_price', 10, 2);
             $table->enum('status', ['pending', 'paid', 'shipped', 'delivered'])->default('pending');
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamps();
         });
     }
 

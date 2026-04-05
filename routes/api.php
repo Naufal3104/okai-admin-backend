@@ -15,6 +15,7 @@ Route::post('/register', [UserController::class, 'register']);
 Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])->name('verification.verify');
 Route::get('/auth/google/url', [UserController::class, 'getGoogleUrl']);
 Route::get('/products', [ProductController::class, 'index']);
+Route::get('/users', [UserController::class, 'index']);
 // tambahan dhandi
 Route::post('/products', [ProductController::class, 'store']);
 Route::put('/products/{id}', [ProductController::class, 'update']);

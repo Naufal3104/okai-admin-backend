@@ -16,8 +16,7 @@ return new class extends Migration
             $table->foreignId('affiliate_id')->constrained('affiliates')->onDelete('cascade');
             $table->decimal('commission_amount', 10, 2);
             $table->enum('status', ['pending', 'approved', 'paid'])->default('pending');
-            $table->timestamp('created_at')->useCurrent();
-
+            $table->timestamps();
             $table->primary(['order_id', 'affiliate_id']);
         });
     }

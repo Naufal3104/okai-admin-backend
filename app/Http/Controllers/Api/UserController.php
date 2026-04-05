@@ -168,4 +168,31 @@ class UserController extends Controller
             return redirect('http://localhost:5173/login?error=google_failed');
         }
     }
+
+    public function index()
+    {
+        // 1. Ambil semua data pengguna, urutkan dari yang terbaru mendaftar
+        $users = User::orderBy('id', 'desc')->get();
+
+        // 2. Format data agar persis dengan struktur 'Mock Data' di React Anda
+        $formattedUsers = $users->map(function ($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                // Mengubah 'super_admin' menjadi 'Super Admin', 'customer' menjadi 'Customer'
+                'role' => ucwords(str_replace('_', ' ', $user->getRoleNames()->first() ?? 'No Role')), 
+                // Status statis sementara sesuai permintaan
+                'status' => 'Active', 
+                // Format tanggal menjadi '12 Jan 2026'
+                'joined' => $user->created_at ? $user->created_at->format('d M Y') : 'Unknown', 
+            ];
+        });
+
+        // 3. Kirimkan JSON ke React
+        return response()->json([
+            'success' => true,
+            'data' => $formattedUsers
+        ], 200);
+    }
 }

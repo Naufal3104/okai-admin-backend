@@ -20,16 +20,17 @@ class DatabaseSeeder extends Seeder
     {
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
+        Role::create(['name' => 'super_admin']);
         Role::create(['name' => 'admin']);
         Role::create(['name' => 'customer']);
         Role::create(['name' => 'affiliate']);
 
-        $admin = User::create([
+        $super_admin = User::create([
             'name' => 'Admin',
             'email' => 'admin@gmail.com',
-            'password' => Hash::make('admin'), 
+            'password' => Hash::make('admin'),
         ]);
 
-        $admin->assignRole('admin');
+        $super_admin->assignRole('super_admin');
     }
 }

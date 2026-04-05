@@ -21,7 +21,7 @@ return new class extends Migration
             $table->string('device', 100)->nullable();
             $table->string('page')->nullable();
             $table->integer('order_id')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamps();
         });
     }
 

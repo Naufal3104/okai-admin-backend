@@ -14,9 +14,12 @@ return new class extends Migration
         Schema::create('affiliates', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
+            $table->string('phone');
+            $table->string('social_media')->nullable();
             $table->string('affiliate_code', 100)->unique();
             $table->decimal('commission_rate', 5, 2);
-            $table->timestamp('created_at')->useCurrent();
+            $table->enum('status', ['pending','active','rejected','inactive'])->default('pending');
+            $table->timestamps();
         });
     }
 
