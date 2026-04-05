@@ -20,9 +20,10 @@ class ProductController extends Controller
                 'sku' => $product->sku ?? 'NO-SKU', 
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
-                'price' => $product->price,
+                // Dikembalikan ke format Rupiah untuk tampilan React
+                'price' => 'Rp ' . number_format($product->price, 0, ',', '.'), 
                 'stock' => $product->stock,
-                'warehouse' => $product->warehouse ?? 'Gudang Utama',
+                'warehouse' => $product->warehouse ?? 'Gudang Utama (Surabaya)',
                 'status' => $product->is_active ? 'Published' : 'Draft',
             ];
         });
@@ -38,7 +39,7 @@ class ProductController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|unique:products,sku', // Validasi agar SKU tidak kembar
+            'sku' => 'nullable|string|unique:products,sku', // Dibuat nullable (opsional)
             'category' => 'required|string',
             'warehouse' => 'required|string',
             'price' => 'required|numeric',
@@ -52,7 +53,15 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        $product = Products::create($request->all());
+        // Mengambil hanya data yang sudah tervalidasi
+        $validatedData = $validator->validated();
+
+        // Jika SKU kosong dari frontend, buatkan otomatis menggunakan waktu acak sementara
+        if (empty($validatedData['sku'])) {
+            $validatedData['sku'] = 'OK-' . strtoupper(substr(uniqid(), -5));
+        }
+
+        $product = Products::create($validatedData);
 
         return response()->json([
             'success' => true,
@@ -61,7 +70,7 @@ class ProductController extends Controller
         ], 201);
     }
 
-        // Tambahkan di dalam ProductController
+    // 3. Tampilkan Satu Produk (Show)
     public function show($id)
     {
         $product = Products::find($id);
@@ -76,7 +85,7 @@ class ProductController extends Controller
         ], 200);
     }
 
-    // 3. Update Produk (Update)
+    // 4. Update Produk (Update)
     public function update(Request $request, $id)
     {
         $product = Products::find($id);
@@ -86,11 +95,13 @@ class ProductController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
-            'sku' => 'sometimes|required|string|unique:products,sku,'.$id, // Abaikan SKU milik sendiri saat update
+            'sku' => 'sometimes|required|string|unique:products,sku,'.$id, 
             'category' => 'sometimes|required|string',
             'warehouse' => 'sometimes|required|string',
             'price' => 'sometimes|required|numeric',
             'stock' => 'sometimes|required|integer',
+            'description' => 'nullable|string',
+            'image_url' => 'nullable|string',
             'is_active' => 'boolean'
         ]);
 
@@ -98,12 +109,13 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        $product->update($request->all());
+        // Gunakan validated() agar lebih aman
+        $product->update($validator->validated());
 
         return response()->json(['success' => true, 'message' => 'Produk diperbarui!', 'data' => $product], 200);
     }
 
-    // 4. Hapus Produk (Destroy)
+    // 5. Hapus Produk (Destroy)
     public function destroy($id)
     {
         $product = Products::find($id);

@@ -16,6 +16,10 @@ Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])-
 Route::get('/auth/google/url', [UserController::class, 'getGoogleUrl']);
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/users', [UserController::class, 'index']);
+Route::post('/users', [UserController::class, 'store']); // Rute ini yang mengatasi Error 405
+Route::get('/users/{id}', [UserController::class, 'show']);
+Route::put('/users/{id}', [UserController::class, 'update']);
+Route::delete('/users/{id}', [UserController::class, 'destroy']);
 // tambahan dhandi
 Route::post('/products', [ProductController::class, 'store']);
 Route::put('/products/{id}', [ProductController::class, 'update']);

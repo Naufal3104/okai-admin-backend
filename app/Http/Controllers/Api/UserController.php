@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Auth\Events\Verified;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Validator;
 
 class UserController extends Controller
 {
@@ -193,6 +194,120 @@ class UserController extends Controller
         return response()->json([
             'success' => true,
             'data' => $formattedUsers
+        ], 200);
+    }
+
+
+    public function show($id)
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $user
+        ], 200);
+    }
+
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8',
+            'role' => 'required|string|in:admin,customer', 
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $validatedData = $validator->validated();
+
+        // Simpan data utama ke tabel users (tanpa kolom role)
+        $user = User::create([
+            'name' => $validatedData['name'],
+            'email' => $validatedData['email'],
+            'password' => Hash::make($validatedData['password']),
+        ]);
+
+        // Berikan role menggunakan Spatie
+        $user->assignRole($validatedData['role']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User berhasil ditambahkan!',
+            'data' => $user
+        ], 201);
+    }
+
+    // 2. Fungsi UPDATE (Edit)
+    public function update(Request $request, $id)
+    {
+        $user = User::find($id);
+        
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
+        }
+
+        // DETEKTOR KEAMANAN VERSI SPATIE: Cek apakah user memiliki salah satu dari role ini
+        if ($user->hasAnyRole(['superadmin', 'affiliate'])) {
+            return response()->json(['success' => false, 'message' => 'Anda tidak memiliki izin untuk mengedit akun ini.'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'sometimes|required|string|max:255',
+            'email' => 'sometimes|required|string|email|max:255|unique:users,email,'.$id,
+            'password' => 'nullable|string|min:8',
+            'role' => 'sometimes|required|string|in:admin,customer', 
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $validatedData = $validator->validated();
+
+        // Update password jika diisi
+        if (!empty($validatedData['password'])) {
+            $validatedData['password'] = Hash::make($validatedData['password']);
+        } else {
+            unset($validatedData['password']);
+        }
+
+        // Simpan perubahan ke tabel users (Karena role tidak ada di $fillable, Laravel akan mengabaikannya)
+        $user->update($validatedData);
+
+        // Sinkronisasi pembaruan role menggunakan Spatie
+        if (isset($validatedData['role'])) {
+            $user->syncRoles([$validatedData['role']]);
+        }
+
+        return response()->json(['success' => true, 'message' => 'User diperbarui!', 'data' => $user], 200);
+    }
+
+    // 3. Fungsi DESTROY (Hapus)
+    public function destroy($id)
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
+        }
+
+        // DETEKTOR KEAMANAN VERSI SPATIE
+        if ($user->hasAnyRole(['superadmin', 'affiliate'])) {
+            return response()->json(['success' => false, 'message' => 'Anda tidak memiliki izin untuk menghapus akun ini.'], 403);
+        }
+
+        $user->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User berhasil dihapus!'
         ], 200);
     }
 }
