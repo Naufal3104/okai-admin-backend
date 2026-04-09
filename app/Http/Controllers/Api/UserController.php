@@ -12,38 +12,38 @@ use Illuminate\Auth\Events\Verified;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
+use App\Models\Affiliates;
+
 
 class UserController extends Controller
 {
     public function login(Request $request)
-    {
-        // Tahap 1: Memeriksa kelengkapan data yang dikirim oleh React
-        $credentials = $request->validate([
-            'email' => 'required|email',
-            'password' => 'required'
-        ]);
+{
+    $credentials = $request->validate([
+        'email' => 'required|email',
+        'password' => 'required'
+    ]);
 
-        // Tahap 2: Mencoba mencocokkan data dengan Database
-        if (Auth::attempt($credentials)) {
-            $user = Auth::user(); // Mengambil data pengguna yang berhasil cocok
+    if (Auth::attempt($credentials)) {
+        $user = Auth::user();
 
-            // Tahap 3: Memberikan balasan JSON yang sama persis dengan harapan React
-            return response()->json([
-                'success' => true,
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                ]
-            ], 200);
-        }
-
-        // Tahap 4: Memberikan balasan gagal jika tidak cocok
         return response()->json([
-            'success' => false,
-            'message' => 'Email atau kata sandi tidak valid.'
-        ], 401);
+            'success' => true,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                // TAMBAHKAN BARIS INI:
+                'role' => $user->getRoleNames()->first() ?? 'customer', 
+            ]
+        ], 200);
     }
+
+    return response()->json([
+        'success' => false,
+        'message' => 'Email atau kata sandi tidak valid.'
+    ], 401);
+}
 
     public function logout(Request $request)
     {
@@ -220,30 +220,27 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8',
-            'role' => 'required|string|in:admin,customer',
+            'role' => 'required|string|in:admin,customer,affiliate,superadmin',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        $validatedData = $validator->validated();
-
-        // Simpan data utama ke tabel users (tanpa kolom role)
         $user = User::create([
-            'name' => $validatedData['name'],
-            'email' => $validatedData['email'],
-            'password' => Hash::make($validatedData['password']),
+            'name' => $request->name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
         ]);
 
-        // Berikan role menggunakan Spatie
-        $user->assignRole($validatedData['role']);
+        // PAKAI syncRoles, JANGAN assignRole
+        $user->syncRoles([$request->role]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'User berhasil ditambahkan!',
-            'data' => $user
-        ], 201);
+        if ($request->role === 'affiliate') {
+            // Buat profil affiliate (seperti logic sebelumnya)
+        }
+
+        return response()->json(['success' => true, 'message' => 'Berhasil!']);
     }
 
     // 2. Fungsi UPDATE (Edit)
@@ -255,16 +252,16 @@ class UserController extends Controller
             return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
         }
 
-        // DETEKTOR KEAMANAN VERSI SPATIE: Cek apakah user memiliki salah satu dari role ini
-        if ($user->hasAnyRole(['superadmin', 'affiliate'])) {
-            return response()->json(['success' => false, 'message' => 'Anda tidak memiliki izin untuk mengedit akun ini.'], 403);
+        // Proteksi: Superadmin tidak boleh diedit lewat sini
+        if ($user->hasRole('superadmin')) {
+            return response()->json(['success' => false, 'message' => 'Izin ditolak untuk akun ini.'], 403);
         }
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $id,
             'password' => 'nullable|string|min:8',
-            'role' => 'sometimes|required|string|in:admin,customer',
+            'role' => 'sometimes|required|string|in:admin,customer,affiliate,superadmin',
         ]);
 
         if ($validator->fails()) {
@@ -280,12 +277,26 @@ class UserController extends Controller
             unset($validatedData['password']);
         }
 
-        // Simpan perubahan ke tabel users (Karena role tidak ada di $fillable, Laravel akan mengabaikannya)
         $user->update($validatedData);
 
-        // Sinkronisasi pembaruan role menggunakan Spatie
+        // --- LOGIC ROLE & AFFILIATE PROFILE ---
         if (isset($validatedData['role'])) {
             $user->syncRoles([$validatedData['role']]);
+
+            // Jika user berubah jadi affiliate, pastikan data di tabel affiliates ada
+            if ($validatedData['role'] === 'affiliate') {
+                // Cek apakah profil sudah ada, kalau belum ada baru buat
+                Affiliates::firstOrCreate(
+                    ['user_id' => $user->id],
+                    [
+                        'full_name' => $user->name,
+                        'email' => $user->email,
+                        'affiliate_code' => 'OKAI-' . strtoupper(Str::random(5)),
+                        'commission_rate' => 10,
+                        'status' => 'active',
+                    ]
+                );
+            }
         }
 
         return response()->json(['success' => true, 'message' => 'User diperbarui!', 'data' => $user], 200);
@@ -300,16 +311,12 @@ class UserController extends Controller
             return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
         }
 
-        // DETEKTOR KEAMANAN VERSI SPATIE
-        if ($user->hasAnyRole(['superadmin', 'affiliate'])) {
-            return response()->json(['success' => false, 'message' => 'Anda tidak memiliki izin untuk menghapus akun ini.'], 403);
+        // 🚩 PERBAIKAN 3: Hanya lindungi Super Admin dari penghapusan
+        if ($user->hasRole('superadmin')) {
+            return response()->json(['success' => false, 'message' => 'Izin ditolak.'], 403);
         }
 
         $user->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'User berhasil dihapus!'
-        ], 200);
+        return response()->json(['success' => true, 'message' => 'User berhasil dihapus!'], 200);
     }
 }
