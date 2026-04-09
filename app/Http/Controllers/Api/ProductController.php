@@ -10,9 +10,16 @@ use Illuminate\Support\Facades\Validator;
 class ProductController extends Controller
 {
     // 1. Ambil Semua Data (Index)
-    public function index()
+    public function index(Request $request) // Tambahkan Request $request di sini
     {
-        $rawProducts = Products::orderBy('id', 'desc')->get();
+        // Tangkap kata kunci pencarian dari React
+        $search = $request->query('search');
+
+        // Tarik data: Jika ada pencarian, saring berdasarkan Nama atau SKU
+        $rawProducts = Products::when($search, function ($query, $search) {
+            return $query->where('name', 'like', '%' . $search . '%')
+                         ->orWhere('sku', 'like', '%' . $search . '%');
+        })->orderBy('id', 'desc')->get();
 
         $formattedProducts = $rawProducts->map(function ($product) {
             return [
@@ -20,7 +27,6 @@ class ProductController extends Controller
                 'sku' => $product->sku ?? 'NO-SKU', 
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
-                // Dikembalikan ke format Rupiah untuk tampilan React
                 'price' => 'Rp ' . number_format($product->price, 0, ',', '.'), 
                 'stock' => $product->stock,
                 'warehouse' => $product->warehouse ?? 'Gudang Utama (Surabaya)',
@@ -33,7 +39,6 @@ class ProductController extends Controller
             'data' => $formattedProducts
         ], 200);
     }
-
     // 2. Simpan Produk Baru (Store)
     public function store(Request $request)
     {

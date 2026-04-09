@@ -170,27 +170,29 @@ class UserController extends Controller
         }
     }
 
-    public function index()
+    public function index(Request $request) // Tambahkan Request di sini
     {
-        // 1. Ambil semua data pengguna, urutkan dari yang terbaru mendaftar
-        $users = User::orderBy('id', 'desc')->get();
+        // 1. Tangkap kata kunci pencarian dari React
+        $search = $request->query('search');
 
-        // 2. Format data agar persis dengan struktur 'Mock Data' di React Anda
+        // 2. Tarik data: Saring berdasarkan nama atau email jika ada kata kunci
+        $users = User::when($search, function ($query, $search) {
+            return $query->where('name', 'like', '%' . $search . '%')
+                ->orWhere('email', 'like', '%' . $search . '%');
+        })->orderBy('id', 'desc')->get();
+
+        // 3. Format data (Kode Anda sebelumnya tetap sama persis)
         $formattedUsers = $users->map(function ($user) {
             return [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
-                // Mengubah 'super_admin' menjadi 'Super Admin', 'customer' menjadi 'Customer'
-                'role' => ucwords(str_replace('_', ' ', $user->getRoleNames()->first() ?? 'No Role')), 
-                // Status statis sementara sesuai permintaan
-                'status' => 'Active', 
-                // Format tanggal menjadi '12 Jan 2026'
-                'joined' => $user->created_at ? $user->created_at->format('d M Y') : 'Unknown', 
+                'role' => ucwords(str_replace('_', ' ', $user->getRoleNames()->first() ?? 'No Role')),
+                'status' => 'Active',
+                'joined' => $user->created_at ? $user->created_at->format('d M Y') : 'Unknown',
             ];
         });
 
-        // 3. Kirimkan JSON ke React
         return response()->json([
             'success' => true,
             'data' => $formattedUsers
@@ -218,7 +220,7 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8',
-            'role' => 'required|string|in:admin,customer', 
+            'role' => 'required|string|in:admin,customer',
         ]);
 
         if ($validator->fails()) {
@@ -248,7 +250,7 @@ class UserController extends Controller
     public function update(Request $request, $id)
     {
         $user = User::find($id);
-        
+
         if (!$user) {
             return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
         }
@@ -260,9 +262,9 @@ class UserController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
-            'email' => 'sometimes|required|string|email|max:255|unique:users,email,'.$id,
+            'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $id,
             'password' => 'nullable|string|min:8',
-            'role' => 'sometimes|required|string|in:admin,customer', 
+            'role' => 'sometimes|required|string|in:admin,customer',
         ]);
 
         if ($validator->fails()) {

@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\API\UserController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\PromotionController;
+use App\Http\Controllers\Api\OrderController;
 use Illuminate\Support\Facades\Route;
 
 // Route::get('/user', function (Request $request) {
@@ -18,6 +19,7 @@ Route::get('/auth/google/url', [UserController::class, 'getGoogleUrl']);
 Route::get('/products', [ProductController::class, 'index']);
 Route::apiResource('/users', UserController::class);
 Route::apiResource('promotions', PromotionController::class);
+Route::apiResource('/orders', OrderController::class);
 // tambahan dhandi
 Route::post('/products', [ProductController::class, 'store']);
 Route::put('/products/{id}', [ProductController::class, 'update']);
