@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Validator;
 class ProductController extends Controller
 {
     // 1. Ambil Semua Data (Index)
-    public function index(Request $request) // Tambahkan Request $request di sini
+    public function index(Request $request)
     {
         // Tangkap kata kunci pencarian dari React
         $search = $request->query('search');
@@ -18,19 +18,26 @@ class ProductController extends Controller
         // Tarik data: Jika ada pencarian, saring berdasarkan Nama atau SKU
         $rawProducts = Products::when($search, function ($query, $search) {
             return $query->where('name', 'like', '%' . $search . '%')
-                         ->orWhere('sku', 'like', '%' . $search . '%');
+                ->orWhere('sku', 'like', '%' . $search . '%');
         })->orderBy('id', 'desc')->get();
 
         $formattedProducts = $rawProducts->map(function ($product) {
             return [
                 'id' => $product->id,
-                'sku' => $product->sku ?? 'NO-SKU', 
+                'sku' => $product->sku ?? 'NO-SKU',
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
-                'price' => 'Rp ' . number_format($product->price, 0, ',', '.'), 
+
+                // FIX 1: Kirim angka mentah saja (tanpa Rp), biar React yang format
+                'price' => $product->price,
+
                 'stock' => $product->stock,
                 'warehouse' => $product->warehouse ?? 'Gudang Utama (Surabaya)',
                 'status' => $product->is_active ? 'Published' : 'Draft',
+
+                // FIX 2: Tambahkan image_url dan description agar bisa ditarik oleh Katalog
+                'image_url' => $product->image_url,
+                'description' => $product->description,
             ];
         });
 
@@ -44,13 +51,14 @@ class ProductController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'sku' => 'nullable|string|unique:products,sku', // Dibuat nullable (opsional)
+            'sku' => 'nullable|string|unique:products,sku',
             'category' => 'required|string',
             'warehouse' => 'required|string',
             'price' => 'required|numeric',
             'stock' => 'required|integer',
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
+            'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'is_active' => 'boolean'
         ]);
 
@@ -58,13 +66,28 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        // Mengambil hanya data yang sudah tervalidasi
         $validatedData = $validator->validated();
 
-        // Jika SKU kosong dari frontend, buatkan otomatis menggunakan waktu acak sementara
         if (empty($validatedData['sku'])) {
             $validatedData['sku'] = 'OK-' . strtoupper(substr(uniqid(), -5));
         }
+
+        // --- LOGIKA GAMBAR ---
+        $finalImageUrl = null;
+
+        if ($request->hasFile('image_file')) {
+            $file = $request->file('image_file');
+            $path = $file->store('products', 'public');
+            $finalImageUrl = asset('storage/' . $path);
+        } elseif (!empty($validatedData['image_url'])) {
+            $finalImageUrl = $validatedData['image_url'];
+        }
+
+        // Hapus image_file biar DB gak bingung
+        unset($validatedData['image_file']);
+
+        // Simpan ke kolom image_url
+        $validatedData['image_url'] = $finalImageUrl;
 
         $product = Products::create($validatedData);
 
@@ -74,7 +97,6 @@ class ProductController extends Controller
             'data' => $product
         ], 201);
     }
-
     // 3. Tampilkan Satu Produk (Show)
     public function show($id)
     {
@@ -94,19 +116,22 @@ class ProductController extends Controller
     public function update(Request $request, $id)
     {
         $product = Products::find($id);
+
         if (!$product) {
             return response()->json(['success' => false, 'message' => 'Produk tidak ditemukan'], 404);
         }
 
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|required|string|max:255',
-            'sku' => 'sometimes|required|string|unique:products,sku,'.$id, 
-            'category' => 'sometimes|required|string',
-            'warehouse' => 'sometimes|required|string',
-            'price' => 'sometimes|required|numeric',
-            'stock' => 'sometimes|required|integer',
+            'name' => 'required|string|max:255',
+            // Ignore pengecekan unique untuk ID produk ini sendiri
+            'sku' => 'nullable|string|unique:products,sku,' . $id, 
+            'category' => 'required|string',
+            'warehouse' => 'required|string',
+            'price' => 'required|numeric',
+            'stock' => 'required|integer',
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
+            'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'is_active' => 'boolean'
         ]);
 
@@ -114,10 +139,32 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
 
-        // Gunakan validated() agar lebih aman
-        $product->update($validator->validated());
+        $validatedData = $validator->validated();
 
-        return response()->json(['success' => true, 'message' => 'Produk diperbarui!', 'data' => $product], 200);
+        // Default: pakai gambar yang udah ada di DB
+        $finalImageUrl = $product->image_url;
+
+        // --- LOGIKA GAMBAR ---
+        if ($request->hasFile('image_file')) {
+            // Kalau user upload foto fisik baru
+            $file = $request->file('image_file');
+            $path = $file->store('products', 'public');
+            $finalImageUrl = asset('storage/' . $path);
+        } elseif (isset($validatedData['image_url'])) {
+            // Kalau user milih dari galeri
+            $finalImageUrl = $validatedData['image_url'];
+        }
+
+        unset($validatedData['image_file']);
+        $validatedData['image_url'] = $finalImageUrl;
+
+        $product->update($validatedData);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Produk berhasil diperbarui!',
+            'data' => $product
+        ]);
     }
 
     // 5. Hapus Produk (Destroy)
