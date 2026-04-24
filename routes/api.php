@@ -5,40 +5,54 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\OrderController;
-use App\Http\Controllers\Api\AffiliateController; // Import Controller baru Dhandi
+use App\Http\Controllers\Api\AffiliateController; 
 
 /*
 |--------------------------------------------------------------------------
-| API Routes - OKAI Admin Portal
+| API Routes - OKAI Store & Admin Portal
 |--------------------------------------------------------------------------
 */
 
-// --- AUTHENTICATION ROUTES ---
+// ==========================================
+// 🔓 JALUR UMUM (Akses Bebas Tanpa Login)
+// ==========================================
 Route::post('/login', [UserController::class, 'login']);
-Route::post('/logout', [UserController::class, 'logout']);
 Route::post('/register', [UserController::class, 'register']);
 Route::get('/auth/google/url', [UserController::class, 'getGoogleUrl']);
 Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])->name('verification.verify');
 
-// --- PRODUCT MANAGEMENT ---
+// Katalog Produk (Customer bebas lihat tanpa login)
 Route::get('/products', [ProductController::class, 'index']);
-Route::apiResource('/users', UserController::class);
-Route::apiResource('promotions', PromotionController::class);
-Route::apiResource('/orders', OrderController::class);
-// tambahan dhandi
-Route::post('/products', [ProductController::class, 'store']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
-Route::put('/products/{id}', [ProductController::class, 'update']);
-Route::delete('/products/{id}', [ProductController::class, 'destroy']);
 
-// --- RESOURCE ROUTES (CRUD) ---
-Route::apiResource('users', UserController::class);
-Route::apiResource('promotions', PromotionController::class);
 
-// --- AFFILIATE MANAGEMENT (Tambahan Dhandi) ---
-Route::prefix('affiliate')->group(function () {
-    Route::get('/stats', [AffiliateController::class, 'getStats']);
-    Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
-    Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateStatus']);
-    Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
+// ==========================================
+// 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
+// ==========================================
+Route::middleware('auth:sanctum')->group(function () {
+    
+    // --- AUTHENTICATION ---
+    Route::post('/logout', [UserController::class, 'logout']);
+
+    // --- TRANSAKSI (Customer & Admin) ---
+    // 👇 INI DIA KUNCINYA! Sekarang route pesanan dijaga ketat
+    Route::apiResource('orders', OrderController::class); 
+
+    // --- MANAJEMEN ADMIN ---
+    Route::apiResource('users', UserController::class);
+    Route::apiResource('promotions', PromotionController::class);
+    
+    // Tambah/Edit/Hapus Produk
+    Route::post('/products', [ProductController::class, 'store']);
+    Route::put('/products/{id}', [ProductController::class, 'update']);
+    Route::delete('/products/{id}', [ProductController::class, 'destroy']);
+
+    // --- AFFILIATE MANAGEMENT ---
+    Route::prefix('affiliate')->group(function () {
+        Route::get('/stats', [AffiliateController::class, 'getStats']);
+        Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
+        Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateStatus']);
+        Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
+    });
+
 });

@@ -18,32 +18,35 @@ use App\Models\Affiliates;
 class UserController extends Controller
 {
     public function login(Request $request)
-{
-    $credentials = $request->validate([
-        'email' => 'required|email',
-        'password' => 'required'
-    ]);
+    {
+        $credentials = $request->validate([
+            'email' => 'required|email',
+            'password' => 'required'
+        ]);
 
-    if (Auth::attempt($credentials)) {
-        $user = Auth::user();
+        if (Auth::attempt($credentials)) {
+            $user = Auth::user();
+
+            // 🚩 TAMBAHAN: Buat Token API menggunakan Laravel Sanctum
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'token' => $token, // <-- Token dikirim ke React
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->getRoleNames()->first() ?? 'customer',
+                ]
+            ], 200);
+        }
 
         return response()->json([
-            'success' => true,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                // TAMBAHKAN BARIS INI:
-                'role' => $user->getRoleNames()->first() ?? 'customer', 
-            ]
-        ], 200);
+            'success' => false,
+            'message' => 'Email atau kata sandi tidak valid.'
+        ], 401);
     }
-
-    return response()->json([
-        'success' => false,
-        'message' => 'Email atau kata sandi tidak valid.'
-    ], 401);
-}
 
     public function logout(Request $request)
     {
@@ -65,30 +68,34 @@ class UserController extends Controller
 
     public function register(Request $request)
     {
-        // 1. Validasi data dari React (password_confirmation diperlukan oleh aturan 'confirmed')
+        // 1. Validasi data
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
         ]);
 
-        // 2. Buat pengguna baru di database
+        // 2. Buat pengguna baru
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
         ]);
 
-        // 3. Berikan role 'customer' secara default menggunakan Spatie
+        // 3. Berikan role 'customer'
         $user->assignRole('customer');
 
-        // 4. Memicu sistem Laravel untuk mengirimkan email verifikasi
+        // 🚩 TAMBAHAN: Buat Token API agar setelah daftar bisa langsung auto-login
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        // 4. Memicu email verifikasi
         event(new Registered($user));
 
-        // 5. Kembalikan respons sukses ke React
+        // 5. Kembalikan respons beserta Token ke React
         return response()->json([
             'success' => true,
-            'message' => 'Registrasi berhasil. Silakan periksa email Anda untuk verifikasi.',
+            'message' => 'Registrasi berhasil.',
+            'token' => $token, // <-- Token dikirim ke React
             'user' => $user
         ], 201);
     }

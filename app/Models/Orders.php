@@ -10,7 +10,16 @@ class Orders extends Model
     use HasFactory;
     protected $table = 'orders';
 
-    protected $fillable = ['user_id', 'affiliate_id', 'total_price', 'status', 'id_promotion'];
+    protected $fillable = [
+        'user_id', 
+        'invoice_no',
+        'total_price', 
+        'address', 
+        'payment_method', 
+        'status', 
+        'affiliate_id', 
+        'id_promotion'
+    ];
 
     public function user() {
         return $this->belongsTo(User::class, 'user_id');
