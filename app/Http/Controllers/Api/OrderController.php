@@ -120,9 +120,49 @@ class OrderController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        //
+        // Cari pesanan berdasarkan ID mentahnya
+        $order = Orders::with(['user', 'items.product'])->find($id);
+
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+        }
+
+        // Keamanan: Pastikan user cuma bisa lihat pesanannya sendiri (kecuali dia Admin)
+        if (!$request->user()->hasRole('superadmin') && !$request->user()->hasRole('admin')) {
+            if ($order->user_id !== $request->user()->id) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak'], 403);
+            }
+        }
+
+        $rawItemsArray = $order->items->map(function ($item) {
+            return [
+                'id' => $item->product_id,
+                'name' => $item->product ? $item->product->name : 'Produk Dihapus',
+                'qty' => $item->quantity,
+                'price' => $item->price,
+            ];
+        });
+
+        // Format data untuk dikirim ke Next.js
+        $formattedOrder = [
+            'id' => 'ORD-' . ($order->created_at ? $order->created_at->format('Y') : date('Y')) . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT),
+            'raw_id' => $order->id,
+            'customer' => $order->user ? $order->user->name : 'Guest/Deleted',
+            'items' => $rawItemsArray,
+            'total' => $order->total_price,
+            'method' => $order->payment_method ?? 'Transfer Bank',
+            'status' => $order->status ?? 'pending',
+            'date' => $order->created_at ? $order->created_at->format('d M Y, H:i') : '-',
+            'address' => $order->address,
+            'invoice_no' => $order->invoice_no,
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $formattedOrder
+        ], 200);
     }
 
     /**

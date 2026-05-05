@@ -10,7 +10,18 @@ class Affiliates extends Model
     use HasFactory;
     protected $table = 'affiliates';
 
-    protected $fillable = ['user_id', 'full_name', 'email', 'phone', 'social_media', 'affiliate_code', 'commission_rate', 'status'];
+    protected $fillable = [
+    'user_id',
+    'full_name',
+    'email',
+    'phone',
+    'social_platform',    
+    'social_username',    
+    'promotional_plan',   
+    'status',
+    'commission_rate',
+    'affiliate_code',
+];
 
     public function user() {
         return $this->belongsTo(User::class, 'user_id');
