@@ -13,7 +13,7 @@ class AffiliateSeeder extends Seeder
     public function run(): void
     {
         // 1. Pastikan Role 'affiliate' sudah ada di database (Spatie)
-        Role::firstOrCreate(['name' => 'affiliate']);
+        Role::firstOrCreate(['name' => 'customer']);
 
         // =========================================================
         // SKENARIO 1: AFFILIATOR STATUS "PENDING" (Belum di-ACC)
@@ -26,7 +26,7 @@ class AffiliateSeeder extends Seeder
             ]
         );
         
-        $pendingUser->assignRole('affiliate');
+        $pendingUser->assignRole('customer');
 
         Affiliates::firstOrCreate(
             ['user_id' => $pendingUser->id],
@@ -49,7 +49,7 @@ class AffiliateSeeder extends Seeder
             ]
         );
 
-        $activeUser->assignRole('affiliate');
+        $activeUser->assignRole('customer');
 
         Affiliates::firstOrCreate(
             ['user_id' => $activeUser->id],

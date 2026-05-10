@@ -26,7 +26,7 @@ class DatabaseSeeder extends Seeder
         Role::create(['name' => 'super_admin']);
         Role::create(['name' => 'admin']);
         Role::create(['name' => 'customer']);
-        Role::create(['name' => 'affiliate']);
+        // Role::create(['name' => 'affiliate']);
 
         $super_admin = User::create([
             'name' => 'Admin',

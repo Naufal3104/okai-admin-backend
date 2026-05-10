@@ -11,14 +11,14 @@ class Orders extends Model
     protected $table = 'orders';
 
     protected $fillable = [
-        'user_id', 
         'invoice_no',
-        'total_price', 
-        'address', 
-        'payment_method', 
-        'status', 
-        'affiliate_id', 
-        'id_promotion'
+        'user_id',
+        'affiliate_id',
+        'total_price',
+        'address',
+        'payment_method',
+        'status',
+        'id_promotion',
     ];
 
     public function user() {
@@ -27,6 +27,11 @@ class Orders extends Model
 
     public function promotion() {
         return $this->belongsTo(Promotions::class, 'id_promotion');
+    }
+
+    public function affiliate()
+    {
+        return $this->belongsTo(Affiliates::class, 'affiliate_id');
     }
 
     public function invoice() {
