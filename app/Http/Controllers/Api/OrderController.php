@@ -146,4 +146,28 @@ class OrderController extends Controller
     {
         //
     }
+
+    public function trackResi(Request $request)
+    {
+        $awb = $request->query('awb');
+        $courier = $request->query('courier');
+        $apiKey = env('BINDERBYTE_API_KEY');
+
+        if (!$awb || !$courier) {
+            return response()->json(['success' => false, 'message' => 'Resi dan Kurir wajib diisi'], 400);
+        }
+
+        // Laravel yang menelpon Binderbyte secara diam-diam
+        $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", [
+            'api_key' => $apiKey,
+            'courier' => $courier,
+            'awb' => $awb
+        ]);
+
+        if ($response->successful() && $response['status'] == 200) {
+            return response()->json(['success' => true, 'data' => $response['data']], 200);
+        }
+
+        return response()->json(['success' => false, 'message' => 'Resi tidak ditemukan atau server sibuk'], 404);
+    }
 }

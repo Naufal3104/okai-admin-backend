@@ -41,7 +41,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- MANAJEMEN ADMIN ---
     Route::apiResource('users', UserController::class);
     Route::apiResource('promotions', PromotionController::class);
-    Route::patch('/affiliates/{id}/status', [\App\Http\Controllers\Api\AffiliateController::class, 'updateStatus']);
+    Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateStatus']);
+    Route::get('/track', [OrderController::class, 'trackResi']);
     
     // Tambah/Edit/Hapus Produk
     Route::post('/products', [ProductController::class, 'store']);
