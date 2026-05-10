@@ -81,5 +81,7 @@ class DatabaseSeeder extends Seeder
             'quantity' => 1,
             'price' => $product->price, // Merekam harga saat itu agar jika harga produk naik, nota ini tidak berubah
         ]);
+        
+        $this->call(AffiliateSeeder::class);
     }
 }

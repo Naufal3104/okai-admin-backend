@@ -110,52 +110,61 @@ class AffiliateController extends Controller
                 'total_mitra'         => Affiliates::count(),
                 'total_referrals'     => AffiliateCommissions::count(),
                 'pending_commissions' => WithdrawalRequest::where('status', 'pending')->sum('amount'),
-                'paid_commissions'    => WithdrawalRequest::where('status', 'approved')->sum('amount'),
+                'paid_commissions' => WithdrawalRequest::where('status', 'approved')->sum('amount'),
             ]
         ]);
     } 
 
-    public function getWithdrawals() 
+    public function getWithdrawals()
     {
         $requests = WithdrawalRequest::with('affiliate')
-                    ->where('status', 'pending')
-                    ->orderBy('created_at', 'desc')
-                    ->get();
+            ->where('status', 'pending')
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         return response()->json([
-            'success' => true, 
+            'success' => true,
             'data' => $requests
         ]);
     } 
 
     public function updateStatus(Request $request, string $id)
     {
-        $withdrawal = WithdrawalRequest::find($id);
+        $request->validate([
+            'status' => 'required|in:active,rejected'
+        ]);
 
-        if (!$withdrawal) {
-            return response()->json(['success' => false, 'message' => 'Data tidak ditemukan'], 404);
+        // UBAH BAGIAN INI: Cari berdasarkan user_id, bukan id tabel affiliate
+        $affiliate = Affiliates::where('id', $id)
+            ->orWhere('user_id', $id) // Sebagai cadangan jika ID yang dikirim adalah ID User
+            ->first();
+
+        if (!$affiliate) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tidak ditemukan di tabel affiliates (ID: ' . $id . ')'
+            ], 404);
         }
 
-        $request->validate([
-            'status' => 'required|in:approved,rejected',
-            'admin_note' => 'nullable|string'
-        ]);
+        $affiliate->status = $request->status;
 
-        $withdrawal->update([
-            'status' => $request->status,
-            'admin_note' => $request->admin_note
-        ]);
+        if ($request->status === 'active' && empty($affiliate->affiliate_code)) {
+            $singkatanNama = strtoupper(substr(str_replace(' ', '', $affiliate->full_name), 0, 4));
+            $affiliate->affiliate_code = 'OKAI-' . $singkatanNama . rand(10, 99);
+        }
+
+        $affiliate->save();
 
         return response()->json([
             'success' => true,
-            'message' => 'Status diperbarui'
+            'message' => 'Status mitra berhasil diperbarui!'
         ]);
     }
 
     public function getAffiliateList()
     {
         $affiliates = Affiliates::orderBy('created_at', 'desc')->get();
-        
+
         return response()->json([
             'success' => true,
             'data' => $affiliates
