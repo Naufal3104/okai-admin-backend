@@ -21,10 +21,9 @@ Route::post('/register', [UserController::class, 'register']);
 Route::get('/auth/google/url', [UserController::class, 'getGoogleUrl']);
 Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])->name('verification.verify');
 
-// Katalog Produk (Customer bebas lihat tanpa login)
+// Katalog Produk
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
-
 
 // ==========================================
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
@@ -34,8 +33,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- AUTHENTICATION ---
     Route::post('/logout', [UserController::class, 'logout']);
 
-    // --- TRANSAKSI (Customer & Admin) ---
-    // 👇 INI DIA KUNCINYA! Sekarang route pesanan dijaga ketat
+    // --- TRANSAKSI ---
     Route::apiResource('orders', OrderController::class); 
 
     // --- MANAJEMEN ADMIN ---
@@ -50,6 +48,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);
 
     // --- AFFILIATE MANAGEMENT ---
+    // 👇 ROUTE BARU UNTUK MENERIMA DATA DARI FORMULIR PENGAJUAN (WEB KAMBI)
+    Route::post('/affiliate-requests', [AffiliateController::class, 'storeRequest']);
+    
+    // 👇 ROUTE BARU UNTUK TOMBOL TERIMA/TOLAK (ADMIN PORTAL)
+    Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateAffiliateStatus']);
+
+    // --- CEK STATUS AFFILIATE USER SAAT INI ---
+    Route::get('/user/affiliate-status', [AffiliateController::class, 'checkUserStatus']);
+    
+    // --- AMBIL PRODUK YANG BISA DI-AFILIASIKAN ---
+    Route::get('/affiliate/available-products', [AffiliateController::class, 'getAvailableProducts']);
+
     Route::prefix('affiliate')->group(function () {
         Route::get('/stats', [AffiliateController::class, 'getStats']);
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
