@@ -52,6 +52,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // 👇 ROUTE BARU UNTUK TOMBOL TERIMA/TOLAK (ADMIN PORTAL)
     Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateAffiliateStatus']);
 
+    // --- CEK STATUS AFFILIATE USER SAAT INI ---
+    Route::get('/user/affiliate-status', [AffiliateController::class, 'checkUserStatus']);
+    
+    // --- AMBIL PRODUK YANG BISA DI-AFILIASIKAN ---
+    Route::get('/affiliate/available-products', [AffiliateController::class, 'getAvailableProducts']);
+
     Route::prefix('affiliate')->group(function () {
         Route::get('/stats', [AffiliateController::class, 'getStats']);
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);

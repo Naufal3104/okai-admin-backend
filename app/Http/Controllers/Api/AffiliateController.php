@@ -8,7 +8,8 @@ use App\Models\Affiliates;
 use App\Models\AffiliateCommissions;
 use App\Models\WithdrawalRequest;
 use App\Models\User; // <-- Pastikan model User di-import
-    
+use App\Models\Products;
+
 class AffiliateController extends Controller
 {
     // ==========================================
@@ -58,7 +59,7 @@ class AffiliateController extends Controller
     // ==========================================
     // 2. ADMIN: SETUJUI / TOLAK PENDAFTARAN
     // ==========================================
-    public function updateAffiliateStatus(Request $request, $id)
+    public function updateAffiliateStatus(Request $request, string $id)
     {
         $affiliate = Affiliates::find($id);
 
@@ -82,12 +83,12 @@ class AffiliateController extends Controller
                 $affiliate->affiliate_code = 'KMB-' . $prefix . rand(1000, 9999);
             }
 
-            // Ubah Hak Akses (Role) User di tabel users menjadi 'affiliate'
-            $user = User::find($affiliate->user_id);
-            if ($user) {
-                $user->role = 'affiliate';
-                $user->save();
-            }
+            // // Ubah Hak Akses (Role) User di tabel users menjadi 'affiliate'
+            // $user = User::find($affiliate->user_id);
+            // if ($user) {
+            //     $user->role = 'affiliate';
+            //     $user->save();
+            // }
         }
 
         $affiliate->save();
@@ -127,7 +128,7 @@ class AffiliateController extends Controller
         ]);
     } 
 
-    public function updateStatus(Request $request, $id)
+    public function updateStatus(Request $request, string $id)
     {
         $withdrawal = WithdrawalRequest::find($id);
 
@@ -158,6 +159,41 @@ class AffiliateController extends Controller
         return response()->json([
             'success' => true,
             'data' => $affiliates
+        ]);
+    }
+    
+    // ==========================================
+    // FUNGSI BARU: CEK STATUS AFFILIATE USER
+    // ==========================================
+    public function checkUserStatus(Request $request)
+    {
+        $user = $request->user();
+        
+        // Cari data pendaftaran user ini di tabel affiliates
+        $affiliate = Affiliates::where('user_id', $user->id)->first();
+
+        // Kalau datanya nggak ada, berarti statusnya null (belum pernah daftar)
+        $status = $affiliate ? $affiliate->status : null;
+
+        return response()->json([
+            'success' => true,
+            'status' => $status,
+            'data' => $affiliate // Kita kirim juga data lengkapnya siapa tau butuh nampilin kode referral di frontend
+        ]);
+    }
+
+    // ==========================================
+    // FUNGSI BARU: KATALOG PRODUK AFFILIATE
+    // ==========================================
+    public function getAvailableProducts()
+    {
+        // Menarik semua produk yang kolom is_affiliate_enabled nya bernilai true (1)
+        // (Note: Bakal error SQL sampai temenmu selesai bikin kolom ini di database)
+        $products = Products::where('is_affiliate_enabled', true)->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $products
         ]);
     }
 }
