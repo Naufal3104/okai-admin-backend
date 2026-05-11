@@ -69,7 +69,14 @@ class PromotionController extends Controller
      */
     public function show(string $id)
     {
-        //
+        // 🚩 Pencarian menggunakan id_promotion karena itu primary key Anda
+        $promotion = Promotions::where('id_promotion', $id)->first();
+
+        if (!$promotion) {
+            return response()->json(['success' => false, 'message' => 'Data Promosi tidak ditemukan.'], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $promotion], 200);
     }
 
     /**
@@ -85,7 +92,7 @@ class PromotionController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        $promotion = Promotions::find($id);
+        $promotion = Promotions::find($id)->first();
         if (!$promotion) {
             return response()->json(['success' => false, 'message' => 'Promo tidak ditemukan'], 404);
         }
@@ -114,7 +121,7 @@ class PromotionController extends Controller
      */
     public function destroy(string $id)
     {
-        $promotion = Promotions::find($id);
+        $promotion = Promotions::find($id)->first();
         if (!$promotion) {
             return response()->json(['success' => false, 'message' => 'Promo tidak ditemukan'], 404);
         }

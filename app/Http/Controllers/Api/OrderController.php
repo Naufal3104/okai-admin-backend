@@ -15,25 +15,25 @@ class OrderController extends Controller
      */
     public function index(Request $request)
     {
-        // Tarik data order (Bisa difilter untuk admin vs customer nanti jika diperlukan)
-        // Sementara kita filter berdasarkan user yang sedang login agar customer hanya lihat pesanan sendiri
         $query = Orders::with(['user', 'items.product'])->orderBy('id', 'desc');
         
-        // Opsional: Jika yang akses bukan admin, tampilkan pesanan miliknya saja
-        if (!$request->user()->hasRole('superadmin') && !$request->user()->hasRole('admin')) {
+        // 🚩 SOLUSI: Gunakan hasAnyRole untuk menangkap semua variasi penulisan admin
+        $adminRoles = ['superadmin', 'super_admin', 'admin', 'administrator'];
+
+        if (!$request->user()->hasAnyRole($adminRoles)) {
+            // Jika bukan salah satu dari admin di atas, batasi hanya pesanan miliknya saja
             $query->where('user_id', $request->user()->id);
         }
 
         $rawOrders = $query->get();
 
         $formattedOrders = $rawOrders->map(function ($order) {
-            // Merangkum barang untuk keperluan tabel Web Admin (Teks)
+            // ... (biarkan kode mapping di bawahnya tetap sama persis seperti sebelumnya)
             $itemString = $order->items->map(function ($item) {
                 $productName = $item->product ? $item->product->name : 'Produk Dihapus';
                 return $productName . ' (' . $item->quantity . 'x)';
             })->implode(', ');
 
-            // Memformat ulang items untuk keperluan Front-End Customer (Array)
             $rawItemsArray = $order->items->map(function ($item) {
                 return [
                     'id' => $item->product_id,
@@ -47,11 +47,9 @@ class OrderController extends Controller
                 'id' => 'ORD-' . ($order->created_at ? $order->created_at->format('Y') : date('Y')) . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT),
                 'raw_id' => $order->id,
                 'customer' => $order->user ? $order->user->name : 'Guest/Deleted',
-                
-                'items_string' => $itemString ?: 'Tidak ada barang', // <-- Untuk Admin
-                'items' => $rawItemsArray, // <-- Untuk Next.js Front-End
-
-                'total' => $order->total_price, // Biarkan angka asli agar Next.js bisa format sendiri
+                'items_string' => $itemString ?: 'Tidak ada barang',
+                'items' => $rawItemsArray,
+                'total' => $order->total_price,
                 'method' => $order->payment_method ?? 'Standard Reguler',
                 'status' => $order->status ?? 'pending',
                 'date' => $order->created_at ? $order->created_at->format('d M Y') : '-',
@@ -198,5 +196,29 @@ class OrderController extends Controller
     public function destroy(string $id)
     {
         //
+    }
+
+    public function trackResi(Request $request)
+    {
+        $awb = $request->query('awb');
+        $courier = $request->query('courier');
+        $apiKey = env('BINDERBYTE_API_KEY');
+
+        if (!$awb || !$courier) {
+            return response()->json(['success' => false, 'message' => 'Resi dan Kurir wajib diisi'], 400);
+        }
+
+        // Laravel yang menelpon Binderbyte secara diam-diam
+        $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", [
+            'api_key' => $apiKey,
+            'courier' => $courier,
+            'awb' => $awb
+        ]);
+
+        if ($response->successful() && $response['status'] == 200) {
+            return response()->json(['success' => true, 'data' => $response['data']], 200);
+        }
+
+        return response()->json(['success' => false, 'message' => 'Resi tidak ditemukan atau server sibuk'], 404);
     }
 }

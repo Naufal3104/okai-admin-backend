@@ -39,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- MANAJEMEN ADMIN ---
     Route::apiResource('users', UserController::class);
     Route::apiResource('promotions', PromotionController::class);
+    Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateStatus']);
+    Route::get('/track', [OrderController::class, 'trackResi']);
     
     // Tambah/Edit/Hapus Produk
     Route::post('/products', [ProductController::class, 'store']);
@@ -48,6 +50,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- AFFILIATE MANAGEMENT ---
     // 👇 ROUTE BARU UNTUK MENERIMA DATA DARI FORMULIR PENGAJUAN (WEB KAMBI)
     Route::post('/affiliate-requests', [AffiliateController::class, 'storeRequest']);
+    // Route untuk mengambil detail satu affiliator spesifik
+    Route::get('/affiliates/{id}', [AffiliateController::class, 'show']);
     
     // 👇 ROUTE BARU UNTUK TOMBOL TERIMA/TOLAK (ADMIN PORTAL)
     Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateAffiliateStatus']);
