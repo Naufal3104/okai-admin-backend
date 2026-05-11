@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Orders;
 use App\Models\OrderItems; // Pastikan model ini di-import! Sesuaikan namanya jika pakai OrderItem (tanpa s)
 use Illuminate\Support\Facades\DB;
-
+use App\Models\Affiliates;
 class OrderController extends Controller
 {
     /**
@@ -75,24 +75,36 @@ class OrderController extends Controller
             'payment_method' => 'required|string',
             'total_price' => 'required|numeric',
             'items' => 'required|array',
+            'affiliate_code' => 'nullable|string', // 👈 Tambahkan validasi untuk menerima kode
         ]);
 
         return DB::transaction(function () use ($request) {
-            // 1. Buat Header Order
+            
+            // 👇 1. LOGIC MENERJEMAHKAN KODE REFERRAL KE ID AFILIATOR 👇
+            $affiliateId = null;
+            if ($request->filled('affiliate_code')) {
+                // Cari afiliator di database berdasarkan kodenya
+                $affiliate = Affiliates::where('affiliate_code', $request->affiliate_code)->first();
+                if ($affiliate) {
+                    $affiliateId = $affiliate->id; // Dapat angkanya! (misal: 1)
+                }
+            }
+            // 👆 ======================================================== 👆
+
+            // 2. Buat Header Order
             $order = Orders::create([
-                // Ganti $request->user()->id menjadi id() bawaan auth agar tidak crash
-                'user_id' => auth()->id(), 
+                // Kita ganti pakai $request->user()->id biar garis merah VS Code hilang
+                'user_id' => $request->user()->id, 
                 
                 'total_price' => $request->total_price,
                 'address' => $request->address,
                 'payment_method' => $request->payment_method,
                 'status' => 'pending', 
-                'affiliate_id' => $request->affiliate_id ?? null, 
+                'affiliate_id' => $affiliateId, // 👈 Masukkan hasil terjemahannya ke sini
             ]);
 
-            // 2. Simpan Detail Produk yang dibeli
+            // 3. Simpan Detail Produk yang dibeli
             foreach ($request->items as $item) {
-                // Catatan: Gunakan OrderItems (pakai 's') jika nama model Akang OrderItems
                 OrderItems::create([
                     'order_id' => $order->id,
                     'product_id' => $item['id'],
@@ -108,7 +120,6 @@ class OrderController extends Controller
             ], 201);
         });
     }
-
     /**
      * Show the form for creating a new resource.
      */
