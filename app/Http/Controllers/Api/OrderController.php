@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Affiliates;
 use Illuminate\Http\Request;
 use App\Models\Orders;
+use App\Models\Products;
+use App\Models\Carts;
 use App\Models\OrderItems; // Pastikan model ini di-import! Sesuaikan namanya jika pakai OrderItem (tanpa s)
 use Illuminate\Support\Facades\DB;
 
@@ -76,33 +79,82 @@ class OrderController extends Controller
         ]);
 
         return DB::transaction(function () use ($request) {
-            // 1. Buat Header Order
+            $userId = auth()->id();
+
+            // 1. Terjemahkan Kode Afiliasi (Frontend mengirim 'affiliate_code', bukan ID)
+            $affiliateId = null;
+            if ($request->filled('affiliate_code')) {
+                // Cari ID Affiliate berdasarkan kode yang dikirim dari React
+                $affiliate = Affiliates::where('affiliate_code', $request->affiliate_code)->first();
+                if ($affiliate) {
+                    $affiliateId = $affiliate->id;
+                }
+            }
+
+            // 2. Buat Header Order
             $order = Orders::create([
-                // Ganti $request->user()->id menjadi id() bawaan auth agar tidak crash
-                'user_id' => auth()->id(), 
+                // WAJIB ADA: Nomor referensi unik untuk Xendit dan pelacakan resi
+                'invoice_no' => 'INV-' . date('Ymd') . '-' . rand(1000, 9999), 
                 
+                'user_id' => $userId, 
                 'total_price' => $request->total_price,
                 'address' => $request->address,
                 'payment_method' => $request->payment_method,
                 'status' => 'pending', 
-                'affiliate_id' => $request->affiliate_id ?? null, 
+                'affiliate_id' => $affiliateId, 
             ]);
 
-            // 2. Simpan Detail Produk yang dibeli
+            // 3. Simpan Detail Produk yang dibeli
             foreach ($request->items as $item) {
-                // Catatan: Gunakan OrderItems (pakai 's') jika nama model Akang OrderItems
-                OrderItems::create([
-                    'order_id' => $order->id,
-                    'product_id' => $item['id'],
-                    'quantity' => $item['qty'],
-                    'price' => $item['price'],
-                ]);
+                // AMAN DARI HACKER: Ambil data produk asli dari database
+                $product = Products::find($item['product_id']);
+
+                if ($product) {
+                    OrderItems::create([
+                        'order_id' => $order->id,
+                        'product_id' => $product->id,
+                        'quantity' => $item['qty'],
+                        'price' => $product->price 
+                    ]);
+
+                    // Kurangi stok produk secara otomatis
+                    $product->decrement('stock', $item['qty']);
+                }
             }
 
+            // 4. Bersihkan Keranjang di Database setelah pesanan dibuat
+            Carts::where('user_id', $userId)->delete();
+
+            // 5. Integrasi Xendit (Jika Metode Bukan COD)
+            $paymentUrl = null;
+            if ($request->payment_method !== 'cod') {
+                $secretKey = env('XENDIT_SECRET_KEY');
+                
+                $xenditResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => 'Basic ' . base64_encode($secretKey . ':')
+                ])->post('https://api.xendit.co/v2/invoices', [
+                    'external_id' => $order->invoice_no,
+                    'amount' => $order->total_price,
+                    'payer_email' => auth()->user()->email,
+                    'description' => 'Pembayaran Pesanan ' . $order->invoice_no,
+                    'success_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/orders',
+                    'failure_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/checkout',
+                ]);
+
+                if ($xenditResponse->successful()) {
+                    $paymentUrl = $xenditResponse->json()['invoice_url'];
+                } else {
+                    // Batalkan seluruh transaksi DB jika Xendit sedang error
+                    throw new \Exception("Gagal membuat tagihan pembayaran."); 
+                }
+            }
+
+            // 6. Kembalikan Respons ke Frontend
             return response()->json([
                 'success' => true,
                 'message' => 'Pesanan berhasil dibuat!',
-                'data' => $order
+                'data' => $order,
+                'payment_url' => $paymentUrl // URL Xendit (Atau bernilai null jika COD)
             ], 201);
         });
     }
