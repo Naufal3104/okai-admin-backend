@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\AffiliateController; 
+use App\Http\Controllers\CartController;
 
 /*
 |--------------------------------------------------------------------------
@@ -46,6 +47,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{id}', [ProductController::class, 'update']);
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);
+
+    Route::get('/carts', [CartController::class, 'index']);       // Ambil data keranjang
+    Route::post('/carts', [CartController::class, 'store']);     // Tambah barang ke keranjang
+    Route::put('/carts/{id}', [CartController::class, 'update']); // Ubah jumlah kuantitas
+    Route::delete('/carts/{id}', [CartController::class, 'destroy']); // Hapus barang dari keranjang
 
     // --- AFFILIATE MANAGEMENT ---
     // 👇 ROUTE BARU UNTUK MENERIMA DATA DARI FORMULIR PENGAJUAN (WEB KAMBI)
