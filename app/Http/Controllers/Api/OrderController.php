@@ -170,23 +170,30 @@ class OrderController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Request $request, string $id)
+    public function show($id)
     {
-        // Cari pesanan berdasarkan ID mentahnya
-        $order = Orders::with(['user', 'items.product'])->find($id);
+        // Jika ID diawali dengan ORD-, ambil angka di paling belakang (ID asli)
+        $originalId = $id;
+        if (str_starts_with($id, 'ORD-')) {
+            $parts = explode('-', $id);
+            $originalId = end($parts);
+        }
+
+        // Cari pesanan berdasarkan ID mentahnya atau nomor invoice
+        $order = Orders::with(['user', 'order_items.product'])
+            ->where('id', $originalId)
+            ->orWhere('invoice_no', $id)
+            ->first();
 
         if (!$order) {
-            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+            return response()->json([
+                "success" => false,
+                "message" => "Data pesanan tidak ditemukan."
+            ], 404);
         }
 
-        // Keamanan: Pastikan user cuma bisa lihat pesanannya sendiri (kecuali dia Admin)
-        if (!$request->user()->hasRole('superadmin') && !$request->user()->hasRole('admin')) {
-            if ($order->user_id !== $request->user()->id) {
-                return response()->json(['success' => false, 'message' => 'Akses ditolak'], 403);
-            }
-        }
-
-        $rawItemsArray = $order->items->map(function ($item) {
+        // Format data agar compatible dengan Next.js (Store) dan React (Admin)
+        $formattedItems = $order->order_items->map(function ($item) {
             return [
                 'id' => $item->product_id,
                 'name' => $item->product ? $item->product->name : 'Produk Dihapus',
@@ -195,23 +202,19 @@ class OrderController extends Controller
             ];
         });
 
-        // Format data untuk dikirim ke Next.js
-        $formattedOrder = [
-            'id' => 'ORD-' . ($order->created_at ? $order->created_at->format('Y') : date('Y')) . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT),
-            'raw_id' => $order->id,
-            'customer' => $order->user ? $order->user->name : 'Guest/Deleted',
-            'items' => $rawItemsArray,
-            'total' => $order->total_price,
-            'method' => $order->payment_method ?? 'Transfer Bank',
-            'status' => $order->status ?? 'pending',
-            'date' => $order->created_at ? $order->created_at->format('d M Y, H:i') : '-',
-            'address' => $order->address,
-            'invoice_no' => $order->invoice_no,
-        ];
+        // Mapping data untuk menyamakan dengan format index dan kebutuhan frontend
+        $data = $order->toArray();
+        $data['id'] = 'ORD-' . ($order->created_at ? $order->created_at->format('Y') : date('Y')) . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
+        $data['raw_id'] = $order->id;
+        $data['customer'] = $order->user ? $order->user->name : 'Guest/Deleted';
+        $data['items'] = $formattedItems; // Digunakan oleh Next.js Store
+        $data['total'] = $order->total_price; // Digunakan oleh Next.js Store
+        $data['method'] = $order->payment_method ?? 'Standard Reguler'; // Digunakan oleh Next.js Store
+        $data['date'] = $order->created_at ? $order->created_at->format('d M Y') : '-'; // Digunakan oleh Next.js Store
 
         return response()->json([
-            'success' => true,
-            'data' => $formattedOrder
+            "success" => true,
+            "data" => $data
         ], 200);
     }
 
@@ -239,6 +242,37 @@ class OrderController extends Controller
         //
     }
 
+    /**
+     * Get orders that are not pending for logistics tracking.
+     */
+    public function getActiveShipments()
+    {
+        $orders = Orders::where('status', '!=', 'pending')
+            ->with('user')
+            ->orderBy('updated_at', 'desc')
+            ->get();
+
+        $hasWaybill = \Illuminate\Support\Facades\Schema::hasColumn('orders', 'waybill_id');
+
+        $formatted = $orders->map(function ($order) use ($hasWaybill) {
+            return [
+                'id' => $order->id,
+                'resi' => $hasWaybill ? $order->waybill_id : null,
+                'invoice_no' => $order->invoice_no,
+                'item' => 'Order #' . $order->id, // Bisa dikembangkan untuk ambil nama produk pertama
+                'customer' => $order->user ? $order->user->name : 'Guest',
+                'status' => ucfirst($order->status),
+                'lastLocation' => 'Click to track',
+                'updated' => $order->updated_at->diffForHumans(),
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $formatted
+        ]);
+    }
+
     public function trackResi(Request $request)
     {
         $awb = $request->query('awb');
@@ -249,17 +283,47 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Resi dan Kurir wajib diisi'], 400);
         }
 
-        // Laravel yang menelpon Binderbyte secara diam-diam
-        $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", [
+        // --- DINAMIS: Ambil Nomor Telepon Pembeli ---
+        $destination = null;
+        
+        // Cari order berdasarkan AWB/waybill_id (jika disimpan di DB) atau invoice_no
+        // Note: Sesuaikan kolom mana yang menyimpan nomor resi di database Anda
+        $order = Orders::where('invoice_no', $awb)
+            ->orWhere('id', str_replace('ORD-', '', $awb)) 
+            ->with('user')
+            ->first();
+
+        if ($order && $order->user) {
+            // Error Handling: Cek apakah kolom phone_number sudah ada di database
+            // Ini untuk mencegah crash jika DB Admin belum menambah kolom tersebut
+            if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'phone_number')) {
+                $destination = $order->user->phone_number;
+            }
+        }
+
+        // Persiapkan parameter untuk Binderbyte
+        $params = [
             'api_key' => $apiKey,
             'courier' => $courier,
             'awb' => $awb
-        ]);
+        ];
+
+        // Tambahkan destination jika ada (diperlukan beberapa ekspedisi)
+        if ($destination) {
+            $params['destination'] = $destination;
+        }
+
+        // Laravel yang menelpon Binderbyte secara diam-diam
+        $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", $params);
 
         if ($response->successful() && $response['status'] == 200) {
             return response()->json(['success' => true, 'data' => $response['data']], 200);
         }
 
-        return response()->json(['success' => false, 'message' => 'Resi tidak ditemukan atau server sibuk'], 404);
+        // Jika gagal karena butuh telepon (beberapa API Binderbyte return specific error)
+        return response()->json([
+            'success' => false, 
+            'message' => 'Resi tidak ditemukan atau server sibuk. Pastikan nomor telepon sudah terdaftar jika diperlukan.'
+        ], 404);
     }
 }
