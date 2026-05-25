@@ -273,6 +273,122 @@ class OrderController extends Controller
         ]);
     }
 
+    public function markAsPaid($id)
+    {
+        $order = Orders::find($id);
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+        }
+
+        $order->status = 'paid';
+        $order->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pesanan berhasil ditandai sebagai Lunas (Paid).',
+            'data' => $order
+        ]);
+    }
+
+    public function shipWithBiteship($id, Request $request)
+    {
+        $order = Orders::with(['user', 'order_items.product'])->find($id);
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+        }
+
+        // Siapkan item untuk Biteship
+        $biteshipItems = [];
+        foreach ($order->order_items as $item) {
+            $biteshipItems[] = [
+                'name' => $item->product ? $item->product->name : 'Produk OKAI',
+                'description' => 'Produk KAMBI',
+                'value' => $item->price,
+                'quantity' => $item->quantity,
+                'weight' => 500 // Asumsi berat 500 gram per produk
+            ];
+        }
+
+        $apiKey = env('BITESHIP_API_KEY');
+
+        // Parameter Kurir - Default ke JNE Reguler jika tidak dikirim dari FE
+        $courier_company = $request->input('courier_company', 'jne');
+        $courier_type = $request->input('courier_type', 'reg');
+
+        $payload = [
+            'shipper_contact_name' => 'Gudang OKAI Official',
+            'shipper_contact_phone' => '081234567890',
+            'shipper_contact_email' => 'admin@okai.com',
+            'shipper_organization' => 'OKAI Official',
+            'origin_contact_name' => 'Gudang OKAI',
+            'origin_contact_phone' => '081234567890',
+            'origin_address' => 'Jalan Kali Rungkut No 5, Surabaya',
+            'origin_postal_code' => 60293, 
+            'destination_contact_name' => $order->user ? $order->user->name : 'Customer',
+            'destination_contact_phone' => ($order->user && $order->user->phone_number) ? $order->user->phone_number : '081233334444',
+            'destination_contact_email' => $order->user ? $order->user->email : 'customer@okai.com',
+            'destination_address' => $order->address ?? 'Jalan Sudirman No 1, Jakarta Pusat',
+            'destination_postal_code' => 12160, // Gunakan kode pos Jakarta yang valid untuk testing
+            'courier_company' => $courier_company,
+            'courier_type' => $courier_type,
+            'delivery_type' => 'now',
+            'order_note' => 'Hati-hati pecah belah',
+            'items' => $biteshipItems
+        ];
+
+        // Lakukan pemanggilan API ke Biteship
+        $response = \Illuminate\Support\Facades\Http::withHeaders([
+            'Authorization' => $apiKey,
+            'Content-Type' => 'application/json'
+        ])->post('https://api.biteship.com/v1/orders', $payload);
+
+        if ($response->successful()) {
+            $biteshipData = $response->json();
+            
+            // Simpan detail Biteship ke pesanan
+            $order->courier_company = $courier_company;
+            $order->courier_type = $courier_type;
+            $order->shipping_cost = $biteshipData['price'] ?? 10000;
+            $order->waybill_id = $biteshipData['courier']['waybill_id'] ?? 'RESI-'.rand(1000,9999);
+            $order->status = 'shipped';
+            $order->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pesanan berhasil diserahkan ke Ekspedisi melalui Biteship!',
+                'data' => $order,
+                'biteship' => $biteshipData
+            ]);
+        } else {
+            // Tampilkan error asli dari Biteship agar kita tahu apa yang salah (misal: Alamat kurang lengkap)
+            $errorData = $response->json();
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Biteship menolak pengiriman. Periksa pesan error di bawah.',
+                'error_from_biteship' => $errorData,
+                'debug_payload_sent' => $payload // Untuk membantu debugging
+            ], 400);
+        }
+    }
+
+    public function simulateDelivery($id)
+    {
+        $order = Orders::find($id);
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+        }
+
+        $order->status = 'delivered';
+        $order->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Simulasi Ekspedisi: Pesanan berhasil ditandai sebagai Diterima (Delivered).',
+            'data' => $order
+        ]);
+    }
+
     public function trackResi(Request $request)
     {
         $awb = $request->query('awb');
@@ -325,5 +441,24 @@ class OrderController extends Controller
             'success' => false, 
             'message' => 'Resi tidak ditemukan atau server sibuk. Pastikan nomor telepon sudah terdaftar jika diperlukan.'
         ], 404);
+    }
+
+    public function xenditWebhook(Request $request)
+    {
+        // 1. Ambil data payload dari Xendit
+        $external_id = $request->input('external_id'); // Format: INV-2026xxxx-xxxx
+        $status = $request->input('status'); // 'PAID', 'EXPIRED', dll
+
+        // 2. Jika status dibayar, perbarui status order di database
+        if ($status === 'PAID') {
+            $order = Orders::where('invoice_no', $external_id)->first();
+            if ($order && $order->status === 'pending') {
+                $order->status = 'paid';
+                $order->save();
+            }
+        }
+
+        // 3. Wajib membalas dengan status 200 OK agar Xendit tidak mencoba mengirim ulang webhook
+        return response()->json(['success' => true, 'message' => 'Webhook diterima.']);
     }
 }

@@ -42,11 +42,15 @@ class AffiliateController extends Controller
             'full_name' => $user->name,
             'email' => $user->email,
             'phone' => $request->whatsapp_number,
-            'social_platform' => $request->social_platform,
-            'social_username' => $request->social_username,
-            'promotional_plan' => $request->promotional_plan,
             'status' => 'pending',
             'commission_rate' => 15, // Default komisi, misal 15%
+        ]);
+
+        \App\Models\AffiliateSocialMedias::create([
+            'affiliate_id' => $affiliate->id,
+            'platform' => $request->social_platform,
+            'username' => $request->social_username,
+            'promotion_plan' => $request->promotional_plan,
         ]);
 
         return response()->json([

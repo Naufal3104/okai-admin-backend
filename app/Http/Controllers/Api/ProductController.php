@@ -27,15 +27,8 @@ class ProductController extends Controller
                 'sku' => $product->sku ?? 'NO-SKU',
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
-
-                // FIX 1: Kirim angka mentah saja (tanpa Rp), biar React yang format
                 'price' => $product->price,
-
-                'stock' => $product->stock,
-                'warehouse' => $product->warehouse ?? 'Gudang Utama (Surabaya)',
                 'status' => $product->is_active ? 'Published' : 'Draft',
-
-                // FIX 2: Tambahkan image_url dan description agar bisa ditarik oleh Katalog
                 'image_url' => $product->image_url,
                 'description' => $product->description,
             ];
@@ -46,6 +39,7 @@ class ProductController extends Controller
             'data' => $formattedProducts
         ], 200);
     }
+    
     // 2. Simpan Produk Baru (Store)
     public function store(Request $request)
     {
@@ -53,9 +47,7 @@ class ProductController extends Controller
             'name' => 'required|string|max:255',
             'sku' => 'nullable|string|unique:products,sku',
             'category' => 'required|string',
-            'warehouse' => 'required|string',
             'price' => 'required|numeric',
-            'stock' => 'required|integer',
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
@@ -83,10 +75,7 @@ class ProductController extends Controller
             $finalImageUrl = $validatedData['image_url'];
         }
 
-        // Hapus image_file biar DB gak bingung
         unset($validatedData['image_file']);
-
-        // Simpan ke kolom image_url
         $validatedData['image_url'] = $finalImageUrl;
 
         $product = Products::create($validatedData);
@@ -97,6 +86,7 @@ class ProductController extends Controller
             'data' => $product
         ], 201);
     }
+
     // 3. Tampilkan Satu Produk (Show)
     public function show($id)
     {
@@ -123,12 +113,9 @@ class ProductController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            // Ignore pengecekan unique untuk ID produk ini sendiri
             'sku' => 'nullable|string|unique:products,sku,' . $id, 
             'category' => 'required|string',
-            'warehouse' => 'required|string',
             'price' => 'required|numeric',
-            'stock' => 'required|integer',
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
@@ -140,18 +127,13 @@ class ProductController extends Controller
         }
 
         $validatedData = $validator->validated();
-
-        // Default: pakai gambar yang udah ada di DB
         $finalImageUrl = $product->image_url;
 
-        // --- LOGIKA GAMBAR ---
         if ($request->hasFile('image_file')) {
-            // Kalau user upload foto fisik baru
             $file = $request->file('image_file');
             $path = $file->store('products', 'public');
             $finalImageUrl = asset('storage/' . $path);
         } elseif (isset($validatedData['image_url'])) {
-            // Kalau user milih dari galeri
             $finalImageUrl = $validatedData['image_url'];
         }
 
