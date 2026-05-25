@@ -25,8 +25,9 @@ Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])-
 // Katalog Produk
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/orders/{id}', [OrderController::class, 'show']);
 
-// ==========================================
+// ==========================================O
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
 // ==========================================
 Route::middleware('auth:sanctum')->group(function () {
@@ -35,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [UserController::class, 'logout']);
 
     // --- TRANSAKSI ---
+    Route::get('/active-shipments', [OrderController::class, 'getActiveShipments']);
     Route::apiResource('orders', OrderController::class); 
 
     // --- MANAJEMEN ADMIN ---
