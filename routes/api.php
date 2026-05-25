@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\PromotionController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\AffiliateController; 
 use App\Http\Controllers\CartController;
+use App\Http\Controllers\Api\ReviewController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,7 @@ Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])-
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
 Route::get('/orders/{id}', [OrderController::class, 'show']);
+Route::get('/products/{id}/reviews', [ReviewController::class, 'index']);
 
 // ==========================================O
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
@@ -75,6 +77,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
         Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateWithdrawalStatus']);
         Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
+        
     });
 
+    Route::post('/reviews', [ReviewController::class, 'store']);
 });

@@ -31,18 +31,25 @@ class OrderController extends Controller
         $rawOrders = $query->get();
 
         $formattedOrders = $rawOrders->map(function ($order) {
-            // ... (biarkan kode mapping di bawahnya tetap sama persis seperti sebelumnya)
             $itemString = $order->items->map(function ($item) {
                 $productName = $item->product ? $item->product->name : 'Produk Dihapus';
                 return $productName . ' (' . $item->quantity . 'x)';
             })->implode(', ');
 
-            $rawItemsArray = $order->items->map(function ($item) {
+            // 👇 PERUBAHAN DI SINI: Tambahkan `use ($order)` agar bisa akses ID order
+            $rawItemsArray = $order->items->map(function ($item) use ($order) {
+                
+                // 🔥 LOGIKA CEK ULASAN: Apakah produk ini di order ini sudah diulas?
+                $isReviewed = \App\Models\Review::where('order_id', $order->id)
+                                                ->where('product_id', $item->product_id)
+                                                ->exists();
+
                 return [
                     'id' => $item->product_id,
                     'name' => $item->product ? $item->product->name : 'Produk Dihapus',
                     'qty' => $item->quantity,
                     'price' => $item->price,
+                    'is_reviewed' => $isReviewed, // 👈 KIRIM STATUS INI KE REACT
                 ];
             });
 
