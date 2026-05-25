@@ -73,7 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('affiliate')->group(function () {
         Route::get('/stats', [AffiliateController::class, 'getStats']);
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
-        Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateStatus']);
+        Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateWithdrawalStatus']);
         Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
     });
 
