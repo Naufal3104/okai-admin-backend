@@ -175,20 +175,51 @@ class AffiliateController extends Controller
     // ==========================================
     // FUNGSI BARU: CEK STATUS AFFILIATE USER
     // ==========================================
-    public function checkUserStatus(Request $request)
+ public function checkUserStatus(Request $request)
     {
         $user = $request->user();
-
-        // Cari data pendaftaran user ini di tabel affiliates
+        
+        // Cari data di tabel affiliates berdasarkan user yang sedang login
         $affiliate = Affiliates::where('user_id', $user->id)->first();
 
-        // Kalau datanya nggak ada, berarti statusnya null (belum pernah daftar)
-        $status = $affiliate ? $affiliate->status : null;
+        // Jika data affiliate tidak ditemukan atau statusnya bukan active, return data user biasa
+        if (!$affiliate || $affiliate->status !== 'active') {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'is_affiliate' => false,
+                    'status' => $affiliate ? $affiliate->status : 'not_registered'
+                ]
+            ]);
+        }
+
+        // ==========================================================
+        // 🚀 LOGIKA PERHITUNGAN DUIT AFFILIATE (DINAMIS)
+        // ==========================================================
+        
+        // 1. Hitung semua komisi masuk yang didapat dari penjualan referal
+     
+        $totalCommission = AffiliateCommissions::where('affiliate_id', $affiliate->id)
+                            ->sum('commission_amount'); 
+
+        // 2. Hitung semua dana yang ditarik atau sedang menunggu persetujuan
+        // Kalau namanya beda (misal: 'request_amount' atau 'nominal'), ganti tulisan 'amount' di bawah ini:
+        $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)
+                            ->whereIn('status', ['pending', 'approved'])
+                            ->sum('amount');
+
+        // 3. Sisa Saldo Tersedia = Total Semua Komisi - Total Dana yang Sudah/Sedang Ditarik
+        $availableBalance = $totalCommission - $totalWithdrawn;
+
+        // Masukkan variabel hitungan ke dalam object affiliate sebelum dikirim ke frontend
+        $affiliate->is_affiliate = true;
+        $affiliate->total_commission = (int) $totalCommission;
+        $affiliate->available_balance = (int) $availableBalance;
+        $affiliate->total_clicks = 0; // Sementara diset 0 dulu sampai ada sistem tracking link referral
 
         return response()->json([
             'success' => true,
-            'status' => $status,
-            'data' => $affiliate // Kita kirim juga data lengkapnya siapa tau butuh nampilin kode referral di frontend
+            'data' => $affiliate
         ]);
     }
 
@@ -204,6 +235,59 @@ class AffiliateController extends Controller
         return response()->json([
             'success' => true,
             'data' => $products
+        ]);
+    }
+
+    public function requestWithdrawal(Request $request)
+    {
+        // 1. Validasi inputan dari React
+        $request->validate([
+            'amount' => 'required|numeric|min:50000',
+            'bank_name' => 'required|string',
+            'account_number' => 'required|string',
+        ]);
+
+        $user = $request->user();
+        $affiliate = Affiliates::where('user_id', $user->id)->first();
+
+        if (!$affiliate) {
+            return response()->json(['success' => false, 'message' => 'Anda bukan affiliate.'], 403);
+        }
+
+        // 2. Hitung ulang saldo aslinya untuk mencegah kecurangan (hack nominal di frontend)
+        $totalCommission = AffiliateCommissions::where('affiliate_id', $affiliate->id)->sum('commission_amount');
+        
+        // ⚠️ PENTING: Cek phpMyAdmin kamu, pastikan nama kolom untuk nominal di tabel withdrawal_requests adalah 'amount'. 
+        // Jika beda, ubah kata 'amount' di bawah ini sesuai database-mu!
+        $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)
+                            ->whereIn('status', ['pending', 'approved'])
+                            ->sum('amount');
+
+        $availableBalance = $totalCommission - $totalWithdrawn;
+
+        // 3. Cek apakah saldonya cukup?
+        if ($request->amount > $availableBalance) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Saldo Anda tidak mencukupi untuk penarikan ini.'
+            ], 400);
+        }
+
+        // 4. Simpan ke database
+        // ⚠️ PENTING KEDUA: Pastikan nama kolom 'bank_name' dan 'account_number' juga sudah sesuai 
+        // dengan yang ada di tabel withdrawal_requests kamu!
+        WithdrawalRequest::create([
+            'affiliate_id' => $affiliate->id,
+            'amount' => $request->amount,
+            'bank_name' => $request->bank_name,
+            'account_name' => $affiliate->full_name,
+            'account_number' => $request->account_number,
+            'status' => 'pending'
+        ]);
+
+        return response()->json([
+            'success' => true, 
+            'message' => 'Penarikan berhasil diajukan'
         ]);
     }
 
@@ -264,5 +348,6 @@ class AffiliateController extends Controller
             'success' => true,
             'data' => $formattedData
         ], 200);
+  
     }
 }
