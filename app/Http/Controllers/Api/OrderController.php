@@ -76,10 +76,11 @@ class OrderController extends Controller
             'payment_method' => 'required|string',
             'total_price' => 'required|numeric',
             'items' => 'required|array',
+            'affiliate_code' => 'nullable|string', // 👈 Tambahkan validasi untuk menerima kode
         ]);
 
         return DB::transaction(function () use ($request) {
-            $userId = auth()->id();
+           $userId = $request->user()->id;
 
             // 1. Terjemahkan Kode Afiliasi (Frontend mengirim 'affiliate_code', bukan ID)
             $affiliateId = null;
@@ -135,7 +136,7 @@ class OrderController extends Controller
                 ])->post('https://api.xendit.co/v2/invoices', [
                     'external_id' => $order->invoice_no,
                     'amount' => $order->total_price,
-                    'payer_email' => auth()->user()->email,
+                    'payer_email' => $request->user()->email,
                     'description' => 'Pembayaran Pesanan ' . $order->invoice_no,
                     'success_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/orders',
                     'failure_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/checkout',
@@ -158,7 +159,6 @@ class OrderController extends Controller
             ], 201);
         });
     }
-
     /**
      * Show the form for creating a new resource.
      */

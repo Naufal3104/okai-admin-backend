@@ -69,11 +69,11 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // --- AMBIL PRODUK YANG BISA DI-AFILIASIKAN ---
     Route::get('/affiliate/available-products', [AffiliateController::class, 'getAvailableProducts']);
-
+    Route::post('/user/affiliate-withdraw', [App\Http\Controllers\Api\AffiliateController::class, 'requestWithdrawal']);
     Route::prefix('affiliate')->group(function () {
         Route::get('/stats', [AffiliateController::class, 'getStats']);
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
-        Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateStatus']);
+        Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateWithdrawalStatus']);
         Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
     });
 
