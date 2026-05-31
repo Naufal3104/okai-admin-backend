@@ -24,6 +24,10 @@ return new class extends Migration
             $table->string('waybill_id')
                 ->nullable()
                 ->after('shipping_cost');
+
+            $table->string('payment_url')
+                ->nullable()
+                ->after('waybill_id');
         });
     }
 

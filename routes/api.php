@@ -41,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- TRANSAKSI ---
     Route::get('/active-shipments', [OrderController::class, 'getActiveShipments']);
     Route::apiResource('orders', OrderController::class);
+    Route::get('/orders/{id}/available-warehouses', [OrderController::class, 'getAvailableWarehouses']);
     Route::post('/orders/{id}/mark-paid', [OrderController::class, 'markAsPaid']);
     Route::post('/orders/{id}/ship', [OrderController::class, 'shipWithBiteship']);
     Route::post('/orders/{id}/simulate-delivery', [OrderController::class, 'simulateDelivery']);

@@ -30,6 +30,32 @@ class OrderController extends Controller
 
         $rawOrders = $query->get();
 
+        // 🚩 SYNC STATUS PEMBAYARAN XENDIT UNTUK SEMUA PESANAN PENDING
+        // Memastikan status di halaman riwayat pesanan (Customer/Admin) selalu ter-update
+        foreach ($rawOrders as $order) {
+            if ($order->status === 'pending' && strtolower($order->payment_method) !== 'cod' && $order->invoice_no) {
+                try {
+                    $secretKey = env('XENDIT_SECRET_KEY');
+                    $xenditCheck = \Illuminate\Support\Facades\Http::withHeaders([
+                        'Authorization' => 'Basic ' . base64_encode($secretKey . ':')
+                    ])->get("https://api.xendit.co/v2/invoices?external_id=" . $order->invoice_no);
+
+                    if ($xenditCheck->successful()) {
+                        $invoices = $xenditCheck->json();
+                        foreach ($invoices as $inv) {
+                            if ($inv['external_id'] === $order->invoice_no && in_array(strtoupper($inv['status']), ['PAID', 'SETTLED'])) {
+                                $order->status = 'paid';
+                                $order->save();
+                                break;
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    \Log::error("Gagal sync Xendit di Index: " . $e->getMessage());
+                }
+            }
+        }
+
         $formattedOrders = $rawOrders->map(function ($order) {
             // ... (biarkan kode mapping di bawahnya tetap sama persis seperti sebelumnya)
             $itemString = $order->items->map(function ($item) {
@@ -117,9 +143,6 @@ class OrderController extends Controller
                         'quantity' => $item['qty'],
                         'price' => $product->price 
                     ]);
-
-                    // Kurangi stok produk secara otomatis
-                    $product->decrement('stock', $item['qty']);
                 }
             }
 
@@ -144,6 +167,7 @@ class OrderController extends Controller
 
                 if ($xenditResponse->successful()) {
                     $paymentUrl = $xenditResponse->json()['invoice_url'];
+                    $order->update(['payment_url' => $paymentUrl]);
                 } else {
                     // Batalkan seluruh transaksi DB jika Xendit sedang error
                     throw new \Exception("Gagal membuat tagihan pembayaran."); 
@@ -211,6 +235,56 @@ class OrderController extends Controller
         $data['total'] = $order->total_price; // Digunakan oleh Next.js Store
         $data['method'] = $order->payment_method ?? 'Standard Reguler'; // Digunakan oleh Next.js Store
         $data['date'] = $order->created_at ? $order->created_at->format('d M Y') : '-'; // Digunakan oleh Next.js Store
+
+        // --- 🚩 SYNC STATUS PEMBAYARAN XENDIT ---
+        // Jika status masih pending dan bukan COD, coba cek ke Xendit langsung (Solusi untuk Localhost/Webhook pending)
+        if ($order->status === 'pending' && strtolower($order->payment_method) !== 'cod' && $order->invoice_no) {
+            try {
+                $secretKey = env('XENDIT_SECRET_KEY');
+                $xenditCheck = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => 'Basic ' . base64_encode($secretKey . ':')
+                ])->get("https://api.xendit.co/v2/invoices?external_id=" . $order->invoice_no);
+
+                if ($xenditCheck->successful()) {
+                    $invoices = $xenditCheck->json();
+                    foreach ($invoices as $inv) {
+                        if ($inv['external_id'] === $order->invoice_no && in_array(strtoupper($inv['status']), ['PAID', 'SETTLED'])) {
+                            $order->status = 'paid';
+                            $order->save();
+                            $data['status'] = 'paid'; 
+                            break;
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                \Log::error("Gagal sync Xendit: " . $e->getMessage());
+            }
+        }
+
+        // --- FETCH TRACKING DARI BITESHIP ---
+        $data['tracking'] = null;
+        if ($order->waybill_id && $order->courier_company) {
+            $trackingResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                'Authorization' => env('BITESHIP_API_KEY'),
+            ])->get("https://api.biteship.com/v1/trackings/{$order->waybill_id}/courier/{$order->courier_company}");
+
+            if ($trackingResponse->successful()) {
+                $trackingData = $trackingResponse->json();
+                $data['tracking'] = [
+                    'waybill_id' => $trackingData['waybill_id'],
+                    'status' => $trackingData['status'],
+                    'courier' => $trackingData['courier'],
+                    'link' => "https://biteship.com/id/tracking/{$order->waybill_id}" // Dokumen resi / tracking
+                ];
+
+                // --- OTOMATISASI STATUS DELIVERED ---
+                if (strtolower($trackingData['status']) === 'delivered' && $order->status !== 'delivered') {
+                    $order->status = 'delivered';
+                    $order->save();
+                    $data['status'] = 'delivered';
+                }
+            }
+        }
 
         return response()->json([
             "success" => true,
@@ -297,6 +371,34 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
         }
 
+        $warehouseId = $request->input('warehouse_id');
+        $warehouse = \App\Models\Warehouses::find($warehouseId);
+
+        if (!$warehouse) {
+            return response()->json(['success' => false, 'message' => 'Gudang asal tidak valid'], 400);
+        }
+
+        // 1. Cek & Kurangi Stok di Gudang Terpilih
+        foreach ($order->order_items as $item) {
+            $productWarehouse = \App\Models\ProductWarehouses::where('id_warehouse', $warehouseId)
+                ->where('id_product', $item->product_id)
+                ->first();
+
+            if (!$productWarehouse || $productWarehouse->stock < $item->quantity) {
+                return response()->json([
+                    'success' => false, 
+                    'message' => "Stok produk '{$item->product->name}' di gudang {$warehouse->name} tidak mencukupi."
+                ], 400);
+            }
+        }
+
+        // Jika semua stok aman, lakukan pengurangan
+        foreach ($order->order_items as $item) {
+            \App\Models\ProductWarehouses::where('id_warehouse', $warehouseId)
+                ->where('id_product', $item->product_id)
+                ->decrement('stock', $item->quantity);
+        }
+
         // Siapkan item untuk Biteship
         $biteshipItems = [];
         foreach ($order->order_items as $item) {
@@ -314,21 +416,44 @@ class OrderController extends Controller
         // Parameter Kurir - Default ke JNE Reguler jika tidak dikirim dari FE
         $courier_company = $request->input('courier_company', 'jne');
         $courier_type = $request->input('courier_type', 'reg');
+        $admin_phone = $request->input('admin_phone', '081234567890');
+
+        // Memecah alamat tujuan yang tersimpan (Format: Jalan, Kecamatan, Kota, Provinsi, KodePos)
+        $destAddress = $order->address ?? '';
+        $destParts = array_map('trim', explode(',', $destAddress));
+        $destPostalCode = 12160; // Default testing
+        
+        if (count($destParts) >= 5) {
+            $parsedPostal = array_pop($destParts);
+            if (is_numeric($parsedPostal)) {
+                $destPostalCode = (int) $parsedPostal;
+            } else {
+                array_push($destParts, $parsedPostal);
+            }
+            
+            if (count($destParts) >= 4) {
+                // Buang Provinsi, Kota, dan Kecamatan agar Biteship tidak menampilkan alamat ganda
+                array_pop($destParts);
+                array_pop($destParts);
+                array_pop($destParts);
+            }
+            $destAddress = implode(', ', $destParts); 
+        }
 
         $payload = [
-            'shipper_contact_name' => 'Gudang OKAI Official',
-            'shipper_contact_phone' => '081234567890',
+            'shipper_contact_name' => 'Gudang OKAI Official - ' . $warehouse->name,
+            'shipper_contact_phone' => $admin_phone,
             'shipper_contact_email' => 'admin@okai.com',
             'shipper_organization' => 'OKAI Official',
-            'origin_contact_name' => 'Gudang OKAI',
-            'origin_contact_phone' => '081234567890',
-            'origin_address' => 'Jalan Kali Rungkut No 5, Surabaya',
-            'origin_postal_code' => 60293, 
+            'origin_contact_name' => 'Admin ' . $warehouse->name,
+            'origin_contact_phone' => $admin_phone,
+            'origin_address' => $warehouse->address . ', ' . $warehouse->city,
+            'origin_postal_code' => (int) $warehouse->postal_code, 
             'destination_contact_name' => $order->user ? $order->user->name : 'Customer',
             'destination_contact_phone' => ($order->user && $order->user->phone_number) ? $order->user->phone_number : '081233334444',
             'destination_contact_email' => $order->user ? $order->user->email : 'customer@okai.com',
-            'destination_address' => $order->address ?? 'Jalan Sudirman No 1, Jakarta Pusat',
-            'destination_postal_code' => 12160, // Gunakan kode pos Jakarta yang valid untuk testing
+            'destination_address' => $destAddress,
+            'destination_postal_code' => $destPostalCode,
             'courier_company' => $courier_company,
             'courier_type' => $courier_type,
             'delivery_type' => 'now',
@@ -360,14 +485,38 @@ class OrderController extends Controller
                 'biteship' => $biteshipData
             ]);
         } else {
-            // Tampilkan error asli dari Biteship agar kita tahu apa yang salah (misal: Alamat kurang lengkap)
+            // ... (logika mock tetap dipertahankan jika Biteship gagal / API Key belum aktif)
             $errorData = $response->json();
             
+            // Jika error karena API Key belum aktif, tetap fiktifkan agar testing jalan
+            if (isset($errorData['code']) && $errorData['code'] == 40002002) {
+                 $biteshipData = [
+                    'price' => 15000,
+                    'courier' => [
+                        'waybill_id' => 'FIKTIF-RESI-' . rand(10000, 99999)
+                    ]
+                ];
+
+                $order->courier_company = $courier_company;
+                $order->courier_type = $courier_type;
+                $order->shipping_cost = $biteshipData['price'];
+                $order->waybill_id = $biteshipData['courier']['waybill_id'];
+                $order->status = 'shipped';
+                $order->save();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Simulasi Ekspedisi: Pesanan berhasil diserahkan secara fiktif (API Key Biteship belum aktif).',
+                    'data' => $order,
+                    'biteship' => $biteshipData
+                ]);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'Biteship menolak pengiriman. Periksa pesan error di bawah.',
                 'error_from_biteship' => $errorData,
-                'debug_payload_sent' => $payload // Untuk membantu debugging
+                'debug_payload_sent' => $payload 
             ], 400);
         }
     }
@@ -393,64 +542,54 @@ class OrderController extends Controller
     {
         $awb = $request->query('awb');
         $courier = $request->query('courier');
-        $apiKey = env('BINDERBYTE_API_KEY');
 
         if (!$awb || !$courier) {
             return response()->json(['success' => false, 'message' => 'Resi dan Kurir wajib diisi'], 400);
         }
 
-        // --- DINAMIS: Ambil Nomor Telepon Pembeli ---
-        $destination = null;
-        
-        // Cari order berdasarkan AWB/waybill_id (jika disimpan di DB) atau invoice_no
-        // Note: Sesuaikan kolom mana yang menyimpan nomor resi di database Anda
-        $order = Orders::where('invoice_no', $awb)
-            ->orWhere('id', str_replace('ORD-', '', $awb)) 
-            ->with('user')
-            ->first();
-
-        if ($order && $order->user) {
-            // Error Handling: Cek apakah kolom phone_number sudah ada di database
-            // Ini untuk mencegah crash jika DB Admin belum menambah kolom tersebut
-            if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'phone_number')) {
-                $destination = $order->user->phone_number;
+        try {
+            $binderbyteKey = env('BINDERBYTE_API_KEY');
+            if (!$binderbyteKey) {
+                return response()->json(['success' => false, 'message' => 'API Key Binderbyte tidak ditemukan'], 500);
             }
+
+            // Melakukan request tracking secara langsung ke API Binderbyte
+            $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", [
+                'api_key' => $binderbyteKey,
+                'courier' => $courier,
+                'awb' => $awb
+            ]);
+
+            if ($response->successful() && $response['status'] == 200) {
+                return response()->json([
+                    'success' => true, 
+                    'data' => $response['data']
+                ], 200);
+            }
+
+            return response()->json([
+                'success' => false, 
+                'message' => 'Resi tidak ditemukan di sistem Binderbyte atau belum diperbarui oleh pihak ekspedisi.',
+                'error' => $response->json()
+            ], 404);
+
+        } catch (\Exception $e) {
+            \Log::error("Binderbyte Tracking Error: " . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal terhubung dengan server tracking. Silakan coba lagi nanti.'
+            ], 500);
         }
-
-        // Persiapkan parameter untuk Binderbyte
-        $params = [
-            'api_key' => $apiKey,
-            'courier' => $courier,
-            'awb' => $awb
-        ];
-
-        // Tambahkan destination jika ada (diperlukan beberapa ekspedisi)
-        if ($destination) {
-            $params['destination'] = $destination;
-        }
-
-        // Laravel yang menelpon Binderbyte secara diam-diam
-        $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", $params);
-
-        if ($response->successful() && $response['status'] == 200) {
-            return response()->json(['success' => true, 'data' => $response['data']], 200);
-        }
-
-        // Jika gagal karena butuh telepon (beberapa API Binderbyte return specific error)
-        return response()->json([
-            'success' => false, 
-            'message' => 'Resi tidak ditemukan atau server sibuk. Pastikan nomor telepon sudah terdaftar jika diperlukan.'
-        ], 404);
     }
 
     public function xenditWebhook(Request $request)
     {
         // 1. Ambil data payload dari Xendit
         $external_id = $request->input('external_id'); // Format: INV-2026xxxx-xxxx
-        $status = $request->input('status'); // 'PAID', 'EXPIRED', dll
+        $status = strtoupper($request->input('status', '')); // 'PAID', 'SETTLED', 'EXPIRED', dll
 
         // 2. Jika status dibayar, perbarui status order di database
-        if ($status === 'PAID') {
+        if (in_array($status, ['PAID', 'SETTLED'])) {
             $order = Orders::where('invoice_no', $external_id)->first();
             if ($order && $order->status === 'pending') {
                 $order->status = 'paid';
@@ -460,5 +599,39 @@ class OrderController extends Controller
 
         // 3. Wajib membalas dengan status 200 OK agar Xendit tidak mencoba mengirim ulang webhook
         return response()->json(['success' => true, 'message' => 'Webhook diterima.']);
+    }
+
+    public function getAvailableWarehouses($id)
+    {
+        $order = Orders::with('order_items')->find($id);
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+        }
+
+        $allWarehouses = \App\Models\Warehouses::all();
+        $availableWarehouses = [];
+
+        foreach ($allWarehouses as $warehouse) {
+            $isSufficient = true;
+            foreach ($order->order_items as $item) {
+                $stock = \App\Models\ProductWarehouses::where('id_warehouse', $warehouse->id_warehouse)
+                    ->where('id_product', $item->product_id)
+                    ->value('stock') ?? 0;
+
+                if ($stock < $item->quantity) {
+                    $isSufficient = false;
+                    break;
+                }
+            }
+
+            if ($isSufficient) {
+                $availableWarehouses[] = $warehouse;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $availableWarehouses
+        ]);
     }
 }

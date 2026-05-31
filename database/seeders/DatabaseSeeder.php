@@ -6,6 +6,8 @@ use App\Models\User;
 use App\Models\Products;
 use App\Models\Orders;
 use App\Models\OrderItems;
+use App\Models\Warehouses;
+use App\Models\ProductWarehouses;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Role;
@@ -56,11 +58,24 @@ class DatabaseSeeder extends Seeder
                 'category' => 'Footwear',
                 'description' => 'Kesukaan Adudu',
                 'price' => 85000,
-                'stock' => 50,
+                'stock' => 0,
                 'warehouse' => 'Gudang Utama (Surabaya)',
                 'is_active' => 1,
             ]
         );
+
+        $warehouse = Warehouses::firstOrCreate(
+            ['name' => 'Gudang Surabaya',
+             'address' => 'Jl. Rungkut no.1',
+             'city' => 'Surabaya',
+             'province' => 'Jawa Timur',
+             'postal_code' => '60293']
+        );
+
+        // $productWarehouse = ProductWarehouses::firstOrCreate(
+        //     ['id_product' => $product->id, 'id_warehouse' => $warehouse->id],
+        //     ['stock' => 10]
+        // );
 
         // ---------------------------------------------------
         // 3. BUAT DATA PESANAN (ORDER)

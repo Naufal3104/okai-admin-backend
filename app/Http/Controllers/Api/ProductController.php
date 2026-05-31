@@ -28,6 +28,7 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
                 'price' => $product->price,
+                'stock' => $product->warehouseStocks()->sum('stock'), // Kalkulasi dari semua gudang
                 'status' => $product->is_active ? 'Published' : 'Draft',
                 'image_url' => $product->image_url,
                 'description' => $product->description,
@@ -96,9 +97,12 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'message' => 'Produk tidak ditemukan'], 404);
         }
 
+        $data = $product->toArray();
+        $data['stock'] = $product->warehouseStocks()->sum('stock');
+
         return response()->json([
             'success' => true,
-            'data' => $product
+            'data' => $data
         ], 200);
     }
 
