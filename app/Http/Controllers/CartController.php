@@ -35,9 +35,11 @@ class CartController extends Controller
         $productId = $request->product_id;
         $qty = $request->qty;
 
-        // Cek stok produk terlebih dahulu untuk memastikan ketersediaan
-        $product = Products::find($productId);
-        if ($product->stock < $qty) {
+        // Cek stok produk terlebih dahulu untuk memastikan ketersediaan (menggunakan total stok di semua gudang)
+        $product = Products::with('warehouseStocks')->find($productId);
+        $totalStock = $product->warehouseStocks->sum('stock');
+        
+        if ($totalStock < $qty) {
             return response()->json([
                 'success' => false,
                 'message' => 'Stok produk tidak mencukupi.'
@@ -53,7 +55,7 @@ class CartController extends Controller
             // Jika sudah ada, akumulasikan jumlahnya
             $newQty = $cartItem->qty + $qty;
             
-            if ($product->stock < $newQty) {
+            if ($totalStock < $newQty) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Total kuantitas di keranjang melebihi stok tersedia.'
@@ -97,8 +99,10 @@ class CartController extends Controller
         }
 
         // Validasi batasan stok produk
-        $product = Products::find($cartItem->product_id);
-        if ($product->stock < $request->qty) {
+        $product = Products::with('warehouseStocks')->find($cartItem->product_id);
+        $totalStock = $product->warehouseStocks->sum('stock');
+
+        if ($totalStock < $request->qty) {
             return response()->json([
                 'success' => false,
                 'message' => 'Kuantitas melebihi stok produk yang tersedia.'

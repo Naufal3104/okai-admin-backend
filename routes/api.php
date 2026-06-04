@@ -29,6 +29,9 @@ Route::get('/products/{id}', [ProductController::class, 'show']);
 Route::get('/orders/{id}', [OrderController::class, 'show']);
 Route::get('/products/{id}/reviews', [ReviewController::class, 'index']);
 
+// Xendit Webhook
+Route::post('/xendit/webhook', [OrderController::class, 'xenditWebhook']);
+
 // ==========================================O
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
 // ==========================================
@@ -39,14 +42,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // --- TRANSAKSI ---
     Route::get('/active-shipments', [OrderController::class, 'getActiveShipments']);
-    Route::apiResource('orders', OrderController::class); 
+    Route::apiResource('orders', OrderController::class);
+    Route::get('/orders/{id}/available-warehouses', [OrderController::class, 'getAvailableWarehouses']);
+    Route::post('/orders/{id}/mark-paid', [OrderController::class, 'markAsPaid']);
+    Route::post('/orders/{id}/ship', [OrderController::class, 'shipWithBiteship']);
+    Route::post('/orders/{id}/simulate-delivery', [OrderController::class, 'simulateDelivery']);
 
     // --- MANAJEMEN ADMIN ---
     Route::apiResource('users', UserController::class);
     Route::apiResource('promotions', PromotionController::class);
+    Route::apiResource('warehouses', \App\Http\Controllers\Api\WarehouseController::class);
+    Route::post('/warehouses/{id}/products', [\App\Http\Controllers\Api\WarehouseController::class, 'updateProductStock']);
     Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateStatus']);
-    Route::get('/track', [OrderController::class, 'trackResi']);
-    
+    Route::get('/track', [OrderController::class, 'trackResi']);    
     // Tambah/Edit/Hapus Produk
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{id}', [ProductController::class, 'update']);

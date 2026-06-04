@@ -17,8 +17,13 @@ class Orders extends Model
         'total_price',
         'address',
         'payment_method',
+        'payment_url',
         'status',
         'id_promotion',
+        'courier_company',
+        'courier_type',
+        'shipping_cost',
+        'waybill_id',
     ];
 
     public function user() {
