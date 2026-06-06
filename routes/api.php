@@ -32,6 +32,8 @@ Route::get('/products/{id}/reviews', [ReviewController::class, 'index']);
 // Xendit Webhook
 Route::post('/xendit/webhook', [OrderController::class, 'xenditWebhook']);
 
+// Affiliate Tracking
+Route::post('/affiliate/track', [\App\Http\Controllers\Api\AffiliateController::class, 'trackClick']);
 // ==========================================O
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
 // ==========================================
@@ -89,4 +91,11 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/reviews', [ReviewController::class, 'store']);
+
+   
+    
 });
+
+ //testing
+    
+    Route::get('/test-delivery/{id}', [\App\Http\Controllers\Api\OrderController::class, 'simulateDelivery']);
