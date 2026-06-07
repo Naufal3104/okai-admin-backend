@@ -32,6 +32,7 @@ class ReviewController extends Controller
                 'rating' => $review->rating,
                 'comment' => $review->comment,
                 'images' => $imageUrls, // Kirim URL penuh ke frontend
+                'admin_reply' => $review->admin_reply, // 🔥 INI TAMBAHANNYA BOSQUE! 🔥
                 'created_at' => $review->created_at,
                 'user' => [
                     'name' => $review->user_name
@@ -103,5 +104,37 @@ class ReviewController extends Controller
             'message' => 'Ulasan berhasil disimpan!',
             'data' => $review
         ], 201);
+    }
+
+    // ==========================================
+    // FUNGSI UNTUK ADMIN MEMBALAS ULASAN
+    // ==========================================
+    public function reply(Request $request, $id)
+    {
+        // 1. Validasi inputan dari frontend admin
+        $request->validate([
+            'admin_reply' => 'required|string|max:1000'
+        ]);
+
+        // 2. Cari ulasan yang mau dibalas
+        // Pastikan nama modelnya benar (Review tanpa S, sesuai konfirmasimu tadi)
+        $review = \App\Models\Review::find($id); 
+
+        if (!$review) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Ulasan tidak ditemukan.'
+            ], 404);
+        }
+
+        // 3. Simpan balasan
+        $review->admin_reply = $request->admin_reply;
+        $review->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Balasan berhasil dikirim!',
+            'data' => $review
+        ]);
     }
 }
