@@ -92,6 +92,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateWithdrawalStatus']);
         Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
     });
+    
+    //chatbot route
+    Route::post('/chat/assistant', [\App\Http\Controllers\Api\ChatbotController::class, 'handleChat']);
 
     Route::post('/reviews', [ReviewController::class, 'store']);
 });
