@@ -25,6 +25,12 @@ Route::get('/verify-email/{id}/{hash}', [UserController::class, 'verifyEmail'])-
 // Katalog Produk
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/products/{id}/reviews', function ($id) {
+    return response()->json([
+        'success' => true,
+        'data' => [] // Dummy response kosong agar tidak error 404
+    ]);
+});
 Route::get('/orders/{id}', [OrderController::class, 'show']);
 
 // Xendit Webhook
@@ -39,6 +45,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [UserController::class, 'logout']);
 
     // --- TRANSAKSI ---
+    Route::post('/reviews', function () {
+        return response()->json([
+            'success' => true,
+            'message' => 'Ulasan berhasil dikirim (Dummy)'
+        ]);
+    });
     Route::get('/active-shipments', [OrderController::class, 'getActiveShipments']);
     Route::apiResource('orders', OrderController::class);
     Route::get('/orders/{id}/available-warehouses', [OrderController::class, 'getAvailableWarehouses']);

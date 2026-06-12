@@ -371,58 +371,51 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
         }
 
-        $warehouseId = $request->input('warehouse_id');
-        $warehouse = \App\Models\Warehouses::find($warehouseId);
-
-        if (!$warehouse) {
-            return response()->json(['success' => false, 'message' => 'Gudang asal tidak valid'], 400);
+        $itemWarehousesInput = $request->input('item_warehouses'); 
+        if (!$itemWarehousesInput || !is_array($itemWarehousesInput)) {
+            return response()->json(['success' => false, 'message' => 'Gudang asal per item tidak valid'], 400);
         }
 
-        // 1. Cek & Kurangi Stok di Gudang Terpilih
+        $warehouseGroups = [];
         foreach ($order->order_items as $item) {
-            $productWarehouse = \App\Models\ProductWarehouses::where('id_warehouse', $warehouseId)
-                ->where('id_product', $item->product_id)
-                ->first();
+            if (!isset($itemWarehousesInput[$item->id])) {
+                return response()->json(['success' => false, 'message' => "Gudang untuk item '{$item->product->name}' belum dipilih."], 400);
+            }
+            $wId = $itemWarehousesInput[$item->id];
+            $warehouseGroups[$wId][] = $item;
+        }
 
-            if (!$productWarehouse || $productWarehouse->stock < $item->quantity) {
-                return response()->json([
-                    'success' => false, 
-                    'message' => "Stok produk '{$item->product->name}' di gudang {$warehouse->name} tidak mencukupi."
-                ], 400);
+        // 1. Cek Stok
+        foreach ($warehouseGroups as $warehouseId => $items) {
+            $warehouse = \App\Models\Warehouses::find($warehouseId);
+            if (!$warehouse) return response()->json(['success' => false, 'message' => 'Gudang asal tidak valid'], 400);
+
+            foreach ($items as $item) {
+                $productWarehouse = \App\Models\ProductWarehouses::where('id_warehouse', $warehouseId)
+                    ->where('id_product', $item->product_id)->first();
+                if (!$productWarehouse || $productWarehouse->stock < $item->quantity) {
+                    return response()->json(['success' => false, 'message' => "Stok produk '{$item->product->name}' di gudang {$warehouse->name} tidak mencukupi."], 400);
+                }
             }
         }
 
-        // Jika semua stok aman, lakukan pengurangan
-        foreach ($order->order_items as $item) {
-            \App\Models\ProductWarehouses::where('id_warehouse', $warehouseId)
-                ->where('id_product', $item->product_id)
-                ->decrement('stock', $item->quantity);
-        }
-
-        // Siapkan item untuk Biteship
-        $biteshipItems = [];
-        foreach ($order->order_items as $item) {
-            $biteshipItems[] = [
-                'name' => $item->product ? $item->product->name : 'Produk OKAI',
-                'description' => 'Produk KAMBI',
-                'value' => $item->price,
-                'quantity' => $item->quantity,
-                'weight' => 500 // Asumsi berat 500 gram per produk
-            ];
+        // 2. Kurangi Stok
+        foreach ($warehouseGroups as $warehouseId => $items) {
+            foreach ($items as $item) {
+                \App\Models\ProductWarehouses::where('id_warehouse', $warehouseId)
+                    ->where('id_product', $item->product_id)->decrement('stock', $item->quantity);
+            }
         }
 
         $apiKey = env('BITESHIP_API_KEY');
-
-        // Parameter Kurir - Default ke JNE Reguler jika tidak dikirim dari FE
         $courier_company = $request->input('courier_company', 'jne');
         $courier_type = $request->input('courier_type', 'reg');
         $admin_phone = $request->input('admin_phone', '081234567890');
 
-        // Memecah alamat tujuan yang tersimpan (Format: Jalan, Kecamatan, Kota, Provinsi, KodePos)
         $destAddress = $order->address ?? '';
         $destParts = array_map('trim', explode(',', $destAddress));
-        $destPostalCode = 12160; // Default testing
-        
+        $destPostalCode = 12160; 
+
         if (count($destParts) >= 5) {
             $parsedPostal = array_pop($destParts);
             if (is_numeric($parsedPostal)) {
@@ -430,95 +423,85 @@ class OrderController extends Controller
             } else {
                 array_push($destParts, $parsedPostal);
             }
-            
             if (count($destParts) >= 4) {
-                // Buang Provinsi, Kota, dan Kecamatan agar Biteship tidak menampilkan alamat ganda
-                array_pop($destParts);
-                array_pop($destParts);
-                array_pop($destParts);
+                array_pop($destParts); array_pop($destParts); array_pop($destParts);
             }
-            $destAddress = implode(', ', $destParts); 
+            $destAddress = implode(', ', $destParts);
         }
 
-        $payload = [
-            'shipper_contact_name' => 'Gudang OKAI Official - ' . $warehouse->name,
-            'shipper_contact_phone' => $admin_phone,
-            'shipper_contact_email' => 'admin@okai.com',
-            'shipper_organization' => 'OKAI Official',
-            'origin_contact_name' => 'Admin ' . $warehouse->name,
-            'origin_contact_phone' => $admin_phone,
-            'origin_address' => $warehouse->address . ', ' . $warehouse->city,
-            'origin_postal_code' => (int) $warehouse->postal_code, 
-            'destination_contact_name' => $order->user ? $order->user->name : 'Customer',
-            'destination_contact_phone' => ($order->user && $order->user->phone_number) ? $order->user->phone_number : '081233334444',
-            'destination_contact_email' => $order->user ? $order->user->email : 'customer@okai.com',
-            'destination_address' => $destAddress,
-            'destination_postal_code' => $destPostalCode,
-            'courier_company' => $courier_company,
-            'courier_type' => $courier_type,
-            'delivery_type' => 'now',
-            'order_note' => 'Hati-hati pecah belah',
-            'items' => $biteshipItems
-        ];
+        $createdWaybills = [];
+        $totalShippingCost = 0;
 
-        // Lakukan pemanggilan API ke Biteship
-        $response = \Illuminate\Support\Facades\Http::withHeaders([
-            'Authorization' => $apiKey,
-            'Content-Type' => 'application/json'
-        ])->post('https://api.biteship.com/v1/orders', $payload);
-
-        if ($response->successful()) {
-            $biteshipData = $response->json();
-            
-            // Simpan detail Biteship ke pesanan
-            $order->courier_company = $courier_company;
-            $order->courier_type = $courier_type;
-            $order->shipping_cost = $biteshipData['price'] ?? 10000;
-            $order->waybill_id = $biteshipData['courier']['waybill_id'] ?? 'RESI-'.rand(1000,9999);
-            $order->status = 'shipped';
-            $order->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Pesanan berhasil diserahkan ke Ekspedisi melalui Biteship!',
-                'data' => $order,
-                'biteship' => $biteshipData
-            ]);
-        } else {
-            // ... (logika mock tetap dipertahankan jika Biteship gagal / API Key belum aktif)
-            $errorData = $response->json();
-            
-            // Jika error karena API Key belum aktif, tetap fiktifkan agar testing jalan
-            if (isset($errorData['code']) && $errorData['code'] == 40002002) {
-                 $biteshipData = [
-                    'price' => 15000,
-                    'courier' => [
-                        'waybill_id' => 'FIKTIF-RESI-' . rand(10000, 99999)
-                    ]
+        foreach ($warehouseGroups as $warehouseId => $items) {
+            $warehouse = \App\Models\Warehouses::find($warehouseId);
+            $biteshipItems = [];
+            foreach ($items as $item) {
+                $biteshipItems[] = [
+                    'name' => $item->product ? $item->product->name : 'Produk OKAI',
+                    'description' => 'Produk KAMBI',
+                    'value' => $item->price,
+                    'quantity' => $item->quantity,
+                    'weight' => 500
                 ];
-
-                $order->courier_company = $courier_company;
-                $order->courier_type = $courier_type;
-                $order->shipping_cost = $biteshipData['price'];
-                $order->waybill_id = $biteshipData['courier']['waybill_id'];
-                $order->status = 'shipped';
-                $order->save();
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Simulasi Ekspedisi: Pesanan berhasil diserahkan secara fiktif (API Key Biteship belum aktif).',
-                    'data' => $order,
-                    'biteship' => $biteshipData
-                ]);
             }
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Biteship menolak pengiriman. Periksa pesan error di bawah.',
-                'error_from_biteship' => $errorData,
-                'debug_payload_sent' => $payload 
-            ], 400);
+            $payload = [
+                'shipper_contact_name' => 'Gudang OKAI Official - ' . $warehouse->name,
+                'shipper_contact_phone' => $admin_phone,
+                'shipper_contact_email' => 'admin@okai.com',
+                'shipper_organization' => 'OKAI Official',
+                'origin_contact_name' => 'Admin ' . $warehouse->name,
+                'origin_contact_phone' => $admin_phone,
+                'origin_address' => $warehouse->address . ', ' . $warehouse->city,
+                'origin_postal_code' => (int) $warehouse->postal_code,
+                'destination_contact_name' => $order->user ? $order->user->name : 'Customer',
+                'destination_contact_phone' => ($order->user && $order->user->phone_number) ? $order->user->phone_number : '081233334444',
+                'destination_contact_email' => $order->user ? $order->user->email : 'customer@okai.com',
+                'destination_address' => $destAddress,
+                'destination_postal_code' => $destPostalCode,
+                'courier_company' => $courier_company,
+                'courier_type' => $courier_type,
+                'delivery_type' => 'now',
+                'order_note' => 'Hati-hati pecah belah',
+                'items' => $biteshipItems
+            ];
+
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'Authorization' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->post('https://api.biteship.com/v1/orders', $payload);
+
+            if ($response->successful()) {
+                $biteshipData = $response->json();
+                $createdWaybills[] = $biteshipData['courier']['waybill_id'] ?? 'RESI-'.rand(1000,9999);
+                $totalShippingCost += $biteshipData['price'] ?? 10000;
+            } else {
+                $errorData = $response->json();
+                if (isset($errorData['code']) && $errorData['code'] == 40002002) {
+                     $createdWaybills[] = 'FIKTIF-RESI-' . rand(10000, 99999);
+                     $totalShippingCost += 15000;
+                } else {
+                     return response()->json([
+                        'success' => false,
+                        'message' => 'Biteship menolak pengiriman untuk gudang ' . $warehouse->name,
+                        'error_from_biteship' => $errorData
+                    ], 400);
+                }
+            }
         }
+
+        $order->courier_company = $courier_company;
+        $order->courier_type = $courier_type;
+        $order->shipping_cost = $totalShippingCost;
+        $order->waybill_id = implode(',', $createdWaybills);
+        $order->status = 'shipped';
+        $order->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => count($createdWaybills) > 1 ? 'Pesanan diserahkan (Split Pengiriman).' : 'Pesanan diserahkan!',
+            'data' => $order
+        ]);
     }
 
     public function simulateDelivery($id)
@@ -540,12 +523,16 @@ class OrderController extends Controller
 
     public function trackResi(Request $request)
     {
-        $awb = $request->query('awb');
+        $awbParam = $request->query('awb');
         $courier = $request->query('courier');
 
-        if (!$awb || !$courier) {
+        if (!$awbParam || !$courier) {
             return response()->json(['success' => false, 'message' => 'Resi dan Kurir wajib diisi'], 400);
         }
+
+        // Handle multiple AWBs (split shipments): Track the first one for now
+        $awbArray = explode(',', $awbParam);
+        $awb = trim($awbArray[0]);
 
         try {
             $binderbyteKey = env('BINDERBYTE_API_KEY');
@@ -603,35 +590,36 @@ class OrderController extends Controller
 
     public function getAvailableWarehouses($id)
     {
-        $order = Orders::with('order_items')->find($id);
+        $order = Orders::with('order_items.product')->find($id);
         if (!$order) {
             return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
         }
 
         $allWarehouses = \App\Models\Warehouses::all();
-        $availableWarehouses = [];
+        $itemWarehouses = [];
 
-        foreach ($allWarehouses as $warehouse) {
-            $isSufficient = true;
-            foreach ($order->order_items as $item) {
+        foreach ($order->order_items as $item) {
+            $validWarehouses = [];
+            foreach ($allWarehouses as $warehouse) {
                 $stock = \App\Models\ProductWarehouses::where('id_warehouse', $warehouse->id_warehouse)
                     ->where('id_product', $item->product_id)
                     ->value('stock') ?? 0;
 
-                if ($stock < $item->quantity) {
-                    $isSufficient = false;
-                    break;
+                if ($stock >= $item->quantity) {
+                    $validWarehouses[] = [
+                        'id_warehouse' => $warehouse->id_warehouse,
+                        'name' => $warehouse->name,
+                        'city' => $warehouse->city,
+                        'stock' => $stock
+                    ];
                 }
             }
-
-            if ($isSufficient) {
-                $availableWarehouses[] = $warehouse;
-            }
+            $itemWarehouses[$item->id] = $validWarehouses;
         }
 
         return response()->json([
             'success' => true,
-            'data' => $availableWarehouses
+            'data' => $itemWarehouses
         ]);
     }
 }
