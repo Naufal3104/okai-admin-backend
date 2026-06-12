@@ -40,7 +40,8 @@ Route::post('/xendit/webhook', [OrderController::class, 'xenditWebhook']);
 
 // Affiliate Tracking
 Route::post('/affiliate/track', [\App\Http\Controllers\Api\AffiliateController::class, 'trackClick']);
-// ==========================================O
+Route::post('/affiliate/validate-code', [\App\Http\Controllers\Api\AffiliateController::class, 'validateCode']);
+// ==========================================
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
 // ==========================================
 Route::middleware('auth:sanctum')->group(function () {

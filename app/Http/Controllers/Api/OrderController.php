@@ -168,6 +168,7 @@ class OrderController extends Controller
                     'amount' => $order->total_price,
                     'payer_email' => $request->user()->email,
                     'description' => 'Pembayaran Pesanan ' . $order->invoice_no,
+                    'invoice_duration' => 86400, // 24 jam
                     'success_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/orders',
                     'failure_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/checkout',
                 ]);

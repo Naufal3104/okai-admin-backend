@@ -455,4 +455,26 @@ class AffiliateController extends Controller
 
         return response()->json(['success' => false], 404);
     }
+
+    public function validateCode(Request $request)
+    {
+        $code = $request->input('code');
+        $user = auth('sanctum')->user(); // Bisa null jika guest
+
+        if (!$code) {
+            return response()->json(['success' => false, 'message' => 'Kode referral tidak valid.']);
+        }
+
+        $affiliate = \App\Models\Affiliates::where('affiliate_code', $code)->where('status', 'approved')->first();
+
+        if (!$affiliate) {
+            return response()->json(['success' => false, 'message' => 'Kode referral tidak ditemukan atau belum aktif.']);
+        }
+
+        if ($user && $affiliate->user_id === $user->id) {
+            return response()->json(['success' => false, 'message' => 'Anda tidak bisa menggunakan kode referral Anda sendiri.']);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Kode referral valid.']);
+    }
 }
