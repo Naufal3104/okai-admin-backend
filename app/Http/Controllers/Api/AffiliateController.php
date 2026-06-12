@@ -210,7 +210,10 @@ class AffiliateController extends Controller
     // ==========================================
     // FUNGSI BARU: CEK STATUS AFFILIATE USER
     // ==========================================
- public function checkUserStatus(Request $request)
+ // ==========================================
+    // FUNGSI BARU: CEK STATUS AFFILIATE USER
+    // ==========================================
+    public function checkUserStatus(Request $request)
     {
         $user = $request->user();
         $affiliate = Affiliates::where('user_id', $user->id)->first();
@@ -231,7 +234,7 @@ class AffiliateController extends Controller
         $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)->whereIn('status', ['pending', 'approved'])->sum('amount');
         $availableBalance = $totalCommission - $totalWithdrawn;
 
-        // 3. AMBIL AKTIVITAS (Logika ini dipindahkan ke sini agar bisa diakses saat 'active')
+        // 3. AMBIL AKTIVITAS
         $recentWithdrawals = WithdrawalRequest::where('affiliate_id', $affiliate->id)
             ->orderBy('created_at', 'desc')->take(5)->get()
             ->map(fn($w) => [
@@ -249,11 +252,51 @@ class AffiliateController extends Controller
         $activities = $recentCommissions->concat($recentWithdrawals)
                         ->sortByDesc('date')->take(5)->values();
 
-        // 4. Kirim response
+        // 4. 🔥 MEMBANGUN DATA GRAFIK MINGGUAN (7 Hari Terakhir) 🔥
+        // Ambil data komisi 7 hari terakhir, dikelompokkan per tanggal
+        $sevenDaysAgo = \Carbon\Carbon::today()->subDays(6);
+        
+        $rawChartData = AffiliateCommissions::select(
+                \Illuminate\Support\Facades\DB::raw('DATE(created_at) as date'),
+                \Illuminate\Support\Facades\DB::raw('SUM(commission_amount) as total')
+            )
+            ->where('affiliate_id', $affiliate->id)
+            ->where('created_at', '>=', $sevenDaysAgo)
+            ->groupBy('date')
+            ->orderBy('date', 'asc')
+            ->pluck('total', 'date')
+            ->toArray();
+
+        // Siapkan array kosong untuk 7 hari (agar grafiknya tidak terputus meski 0)
+        $weeklyChartData = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $dateObj = \Carbon\Carbon::today()->subDays($i);
+            $dateString = $dateObj->format('Y-m-d');
+            
+            // Format label X-Axis (misal: "Sen", "Sel", "Rab")
+            // Gunakan $dateObj->isoFormat('ddd') untuk nama hari Bahasa Indonesia jika sudah diset locale ID
+            $dayName = [
+                'Sun' => 'Min', 'Mon' => 'Sen', 'Tue' => 'Sel', 'Wed' => 'Rab', 
+                'Thu' => 'Kam', 'Fri' => 'Jum', 'Sat' => 'Sab'
+            ][$dateObj->format('D')];
+
+            // Jika ini hari ini, ganti labelnya jadi "Hari Ini"
+            if ($i == 0) $dayName = 'Hari Ini';
+
+            $weeklyChartData[] = [
+                'name' => $dayName,
+                // Masukkan total komisi jika ada di database, jika tidak set ke 0
+                'k' => isset($rawChartData[$dateString]) ? (float) $rawChartData[$dateString] : 0
+            ];
+        }
+
+        // 5. Kirim response
         $affiliate->is_affiliate = true;
         $affiliate->total_commission = (int) $totalCommission;
         $affiliate->available_balance = (int) $availableBalance;
-        $affiliate->recent_activities = $activities; // Sekarang sudah pasti ada
+        $affiliate->total_clicks = $affiliate->total_clicks ?? 0; // 👈 PASTIKAN BARIS INI ADA
+        $affiliate->recent_activities = $activities; 
+        $affiliate->weekly_chart_data = $weeklyChartData; 
 
         return response()->json([
             'success' => true,
@@ -387,5 +430,29 @@ class AffiliateController extends Controller
             'data' => $formattedData
         ], 200);
   
+    }
+
+    // ==========================================
+    // FUNGSI BARU: REKAM KLIK LINK AFILIASI
+    // ==========================================
+    public function trackClick(Request $request)
+    {
+        $request->validate([
+            'ref' => 'required|string'
+        ]);
+
+        $affiliate = Affiliates::where('affiliate_code', $request->ref)->first();
+
+        if ($affiliate) {
+            // Tambah angka klik +1
+            $affiliate->increment('total_clicks');
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Klik berhasil direkam'
+            ]);
+        }
+
+        return response()->json(['success' => false], 404);
     }
 }

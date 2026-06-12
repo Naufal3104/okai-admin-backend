@@ -57,18 +57,25 @@ class OrderController extends Controller
         }
 
         $formattedOrders = $rawOrders->map(function ($order) {
-            // ... (biarkan kode mapping di bawahnya tetap sama persis seperti sebelumnya)
             $itemString = $order->items->map(function ($item) {
                 $productName = $item->product ? $item->product->name : 'Produk Dihapus';
                 return $productName . ' (' . $item->quantity . 'x)';
             })->implode(', ');
 
-            $rawItemsArray = $order->items->map(function ($item) {
+            // 👇 PERUBAHAN DI SINI: Tambahkan `use ($order)` agar bisa akses ID order
+            $rawItemsArray = $order->items->map(function ($item) use ($order) {
+                
+                // 🔥 LOGIKA CEK ULASAN: Apakah produk ini di order ini sudah diulas?
+                $isReviewed = \App\Models\Review::where('order_id', $order->id)
+                                                ->where('product_id', $item->product_id)
+                                                ->exists();
+
                 return [
                     'id' => $item->product_id,
                     'name' => $item->product ? $item->product->name : 'Produk Dihapus',
                     'qty' => $item->quantity,
                     'price' => $item->price,
+                    'is_reviewed' => $isReviewed, // 👈 KIRIM STATUS INI KE REACT
                 ];
             });
 
@@ -191,9 +198,6 @@ class OrderController extends Controller
         //
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show($id)
     {
         // Jika ID diawali dengan ORD-, ambil angka di paling belakang (ID asli)
@@ -216,7 +220,6 @@ class OrderController extends Controller
             ], 404);
         }
 
-        // Format data agar compatible dengan Next.js (Store) dan React (Admin)
         $formattedItems = $order->order_items->map(function ($item) {
             return [
                 'id' => $item->product_id,
@@ -226,18 +229,16 @@ class OrderController extends Controller
             ];
         });
 
-        // Mapping data untuk menyamakan dengan format index dan kebutuhan frontend
         $data = $order->toArray();
         $data['id'] = 'ORD-' . ($order->created_at ? $order->created_at->format('Y') : date('Y')) . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
         $data['raw_id'] = $order->id;
         $data['customer'] = $order->user ? $order->user->name : 'Guest/Deleted';
-        $data['items'] = $formattedItems; // Digunakan oleh Next.js Store
-        $data['total'] = $order->total_price; // Digunakan oleh Next.js Store
-        $data['method'] = $order->payment_method ?? 'Standard Reguler'; // Digunakan oleh Next.js Store
-        $data['date'] = $order->created_at ? $order->created_at->format('d M Y') : '-'; // Digunakan oleh Next.js Store
+        $data['items'] = $formattedItems;
+        $data['total'] = $order->total_price; 
+        $data['method'] = $order->payment_method ?? 'Standard Reguler'; 
+        $data['date'] = $order->created_at ? $order->created_at->format('d M Y') : '-'; 
 
         // --- 🚩 SYNC STATUS PEMBAYARAN XENDIT ---
-        // Jika status masih pending dan bukan COD, coba cek ke Xendit langsung (Solusi untuk Localhost/Webhook pending)
         if ($order->status === 'pending' && strtolower($order->payment_method) !== 'cod' && $order->invoice_no) {
             try {
                 $secretKey = env('XENDIT_SECRET_KEY');
@@ -274,14 +275,46 @@ class OrderController extends Controller
                     'waybill_id' => $trackingData['waybill_id'],
                     'status' => $trackingData['status'],
                     'courier' => $trackingData['courier'],
-                    'link' => "https://biteship.com/id/tracking/{$order->waybill_id}" // Dokumen resi / tracking
+                    'link' => "https://biteship.com/id/tracking/{$order->waybill_id}" 
                 ];
 
-                // --- OTOMATISASI STATUS DELIVERED ---
+                // --- 🚩 OTOMATISASI STATUS DELIVERED + CAIRKAN KOMISI ---
                 if (strtolower($trackingData['status']) === 'delivered' && $order->status !== 'delivered') {
                     $order->status = 'delivered';
                     $order->save();
                     $data['status'] = 'delivered';
+
+                    // CAIRKAN KOMISI KARENA RESI ASLI SUDAH SAMPAI
+                    if ($order->affiliate_id) {
+                        $affiliate = \App\Models\Affiliates::find($order->affiliate_id);
+                        if ($affiliate) {
+                            $totalCommission = 0;
+                            $commissionRate = $affiliate->commission_rate ?? 10; 
+                            
+                            foreach ($order->order_items as $item) {
+                                if ($item->product && $item->product->is_affiliate_enabled) {
+                                    $itemCommission = ($commissionRate / 100) * $item->price * $item->quantity;
+                                    $totalCommission += $itemCommission;
+                                }
+                            }
+                            
+                            if ($totalCommission > 0) {
+                                $existingCommission = \Illuminate\Support\Facades\DB::table('affiliate_commissions')
+                                    ->where('order_id', $order->id)->first();
+
+                                if (!$existingCommission) {
+                                    \Illuminate\Support\Facades\DB::table('affiliate_commissions')->insert([
+                                        'affiliate_id' => $affiliate->id,
+                                        'order_id' => $order->id,
+                                        'commission_amount' => $totalCommission, // 👈 SUDAH DIPERBAIKI (s dobel)
+                                        'status' => 'pending', 
+                                        'created_at' => now(),
+                                        'updated_at' => now(),
+                                    ]);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -506,17 +539,52 @@ class OrderController extends Controller
 
     public function simulateDelivery($id)
     {
-        $order = Orders::find($id);
+        $order = Orders::with('order_items.product')->find($id);
         if (!$order) {
             return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
         }
 
-        $order->status = 'delivered';
-        $order->save();
+        if ($order->status !== 'delivered') {
+            $order->status = 'delivered';
+            $order->save();
+
+            // 💰🔥 EKSEKUSI KOMISI AFILIASI (VERSI TABEL COMMISSIONS) 🔥💰
+            if ($order->affiliate_id) {
+                $affiliate = \App\Models\Affiliates::find($order->affiliate_id);
+                if ($affiliate) {
+                    $totalCommission = 0;
+                    $commissionRate = $affiliate->commission_rate ?? 10; 
+                    
+                    foreach ($order->order_items as $item) {
+                        if ($item->product && $item->product->is_affiliate_enabled) {
+                            $itemCommission = ($commissionRate / 100) * $item->price * $item->quantity;
+                            $totalCommission += $itemCommission;
+                        }
+                    }
+                    
+                    if ($totalCommission > 0) {
+                        $existingCommission = \Illuminate\Support\Facades\DB::table('affiliate_commissions')
+                            ->where('order_id', $order->id)
+                            ->first();
+
+                        if (!$existingCommission) {
+                            \Illuminate\Support\Facades\DB::table('affiliate_commissions')->insert([
+                                'affiliate_id' => $affiliate->id,
+                                'order_id' => $order->id,
+                                'commission_amount' => $totalCommission, // 👈 SUDAH DIPERBAIKI (s dobel)
+                                'status' => 'pending',
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Simulasi Ekspedisi: Pesanan berhasil ditandai sebagai Diterima (Delivered).',
+            'message' => 'Simulasi Ekspedisi: Pesanan berhasil ditandai sebagai Diterima (Delivered) & Komisi Masuk ke Riwayat.',
             'data' => $order
         ]);
     }

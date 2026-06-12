@@ -32,6 +32,8 @@ class ProductController extends Controller
                 'status' => $product->is_active ? 'Published' : 'Draft',
                 'image_url' => $product->image_url,
                 'description' => $product->description,
+                'is_affiliate_enabled' => (bool) $product->is_affiliate_enabled, // 👈 TAMBAHKAN INI
+                'affiliate_commission' => $product->affiliate_commission,
             ];
         });
 
@@ -40,7 +42,7 @@ class ProductController extends Controller
             'data' => $formattedProducts
         ], 200);
     }
-    
+
     // 2. Simpan Produk Baru (Store)
     public function store(Request $request)
     {
@@ -52,7 +54,9 @@ class ProductController extends Controller
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'boolean'
+            'is_active' => 'boolean',
+            'is_affiliate_enabled' => 'in:0,1,true,false',
+            'affiliate_commission' => 'nullable|numeric|min:0|max:100',
         ]);
 
         if ($validator->fails()) {
@@ -123,7 +127,9 @@ class ProductController extends Controller
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'boolean'
+            'is_active' => 'in:0,1,true,false', // 👈 Diubah agar tidak error
+            'is_affiliate_enabled' => 'in:0,1,true,false', // 👈 Diubah agar tidak error
+            'affiliate_commission' => 'nullable|numeric|min:0|max:100'
         ]);
 
         if ($validator->fails()) {
@@ -131,6 +137,8 @@ class ProductController extends Controller
         }
 
         $validatedData = $validator->validated();
+        
+        // --- LOGIKA GAMBAR ---
         $finalImageUrl = $product->image_url;
 
         if ($request->hasFile('image_file')) {
@@ -141,10 +149,22 @@ class ProductController extends Controller
             $finalImageUrl = $validatedData['image_url'];
         }
 
-        unset($validatedData['image_file']);
-        $validatedData['image_url'] = $finalImageUrl;
+        // --- UPDATE DATA MANUAL (Anti Gagal) ---
+        $product->name = $validatedData['name'];
+        $product->sku = $validatedData['sku'] ?? $product->sku;
+        $product->category = $validatedData['category'];
+        $product->price = $validatedData['price'];
+        $product->description = $validatedData['description'] ?? '';
+        $product->image_url = $finalImageUrl;
+        
+        // Trik konversi string "1"/"0" dari Frontend menjadi integer untuk MySQL
+        $product->is_active = in_array($request->input('is_active'), [1, '1', true, 'true'], true) ? 1 : 0;
+        $product->is_affiliate_enabled = in_array($request->input('is_affiliate_enabled'), [1, '1', true, 'true'], true) ? 1 : 0;
+        
+        $product->affiliate_commission = $request->input('affiliate_commission') ?? 15;
 
-        $product->update($validatedData);
+        // Eksekusi Simpan ke DB
+        $product->save();
 
         return response()->json([
             'success' => true,
