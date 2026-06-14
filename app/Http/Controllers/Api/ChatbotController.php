@@ -130,7 +130,7 @@ class ChatbotController extends Controller
         // 6. Jika tidak memanggil database (Cuma ngobrol biasa)
         $replyText = $candidate['parts'][0]['text'] ?? 'Ada yang bisa Ami bantu, Kanda?';
         return response()->json(['success' => true, 'reply' => $replyText]);
-    }
+    } 
 
     // ==========================================
     // FUNGSI INTERNAL LARAVEL (AMAN DARI IDOR & INJECTION)

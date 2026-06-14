@@ -7,19 +7,15 @@ use Illuminate\Http\Request;
 use App\Models\Affiliates;
 use App\Models\AffiliateCommissions;
 use App\Models\WithdrawalRequest;
-// use App\Models\User;
 use App\Models\Products;
+use Illuminate\Support\Facades\DB;
 
 class AffiliateController extends Controller
 {
-    // ==========================================
-    // 1. TERIMA DATA DARI FORMULIR WEB PUBLIK KAMBI
-    // ==========================================
     public function storeRequest(Request $request)
     {
         $user = $request->user();
 
-        // Validasi: Cek apakah user sudah pernah mendaftar sebelumnya
         $existing = Affiliates::where('user_id', $user->id)->first();
         if ($existing) {
             return response()->json([
@@ -28,7 +24,6 @@ class AffiliateController extends Controller
             ], 400);
         }
 
-        // Validasi Inputan Form
         $request->validate([
             'whatsapp_number' => 'required|string|max:20',
             'social_platform' => 'required|string|max:50',
@@ -36,14 +31,13 @@ class AffiliateController extends Controller
             'promotional_plan' => 'required|string'
         ]);
 
-        // Simpan ke Database
         $affiliate = Affiliates::create([
             'user_id' => $user->id,
             'full_name' => $user->name,
             'email' => $user->email,
             'phone' => $request->whatsapp_number,
             'status' => 'pending',
-            'commission_rate' => 15, // Default komisi, misal 15%
+            'commission_rate' => 15, 
         ]);
 
         \App\Models\AffiliateSocialMedias::create([
@@ -60,9 +54,6 @@ class AffiliateController extends Controller
         ], 201);
     }
 
-    // ==========================================
-    // 2. ADMIN: SETUJUI / TOLAK PENDAFTARAN
-    // ==========================================
     public function updateAffiliateStatus(Request $request, string $id)
     {
         $affiliate = Affiliates::find($id);
@@ -77,23 +68,13 @@ class AffiliateController extends Controller
 
         $affiliate->status = $request->status;
 
-        // JIKA ADMIN KLIK "TERIMA" (ACTIVE)
         if ($request->status === 'active') {
-
-            // Generate kode unik jika belum ada (Misal: KMB-FAW1234)
             if (empty($affiliate->affiliate_code)) {
                 $prefix = strtoupper(substr(preg_replace('/[^a-zA-Z]/', '', $affiliate->full_name), 0, 3));
                 if (strlen($prefix) < 3)
                     $prefix = 'KMB';
                 $affiliate->affiliate_code = 'KMB-' . $prefix . rand(1000, 9999);
             }
-
-            // // Ubah Hak Akses (Role) User di tabel users menjadi 'affiliate'
-            // $user = User::find($affiliate->user_id);
-            // if ($user) {
-            //     $user->role = 'affiliate';
-            //     $user->save();
-            // }
         }
 
         $affiliate->save();
@@ -104,9 +85,6 @@ class AffiliateController extends Controller
         ]);
     }
 
-    // ==========================================
-    // DATA STATISTIK DAN LIST ADMIN LAINNYA
-    // ==========================================
     public function getStats()
     {
         return response()->json([
@@ -135,12 +113,10 @@ class AffiliateController extends Controller
 
     public function updateWithdrawalStatus(Request $request,string $id)
     {
-        // 1. Validasi input (hanya boleh 'approved' atau 'rejected')
         $request->validate([
             'status' => 'required|in:approved,rejected'
         ]);
 
-        // 2. Cari data penarikan berdasarkan ID
         $withdrawal = WithdrawalRequest::find($id);
 
         if (!$withdrawal) {
@@ -150,13 +126,8 @@ class AffiliateController extends Controller
             ], 404);
         }
 
-        // 3. Ubah status dan simpan
         $withdrawal->status = $request->status;
         $withdrawal->save();
-
-        // 💡 Fakta Menarik: Karena di fungsi checkUserStatus kita ngitung saldo pakai 
-        // whereIn('status', ['pending', 'approved']), 
-        // kalau statusnya kamu ubah jadi 'rejected', saldonya akan otomatis balik (nggak jadi kepotong)!
 
         return response()->json([
             'success' => true,
@@ -170,9 +141,8 @@ class AffiliateController extends Controller
             'status' => 'required|in:active,rejected'
         ]);
 
-        // UBAH BAGIAN INI: Cari berdasarkan user_id, bukan id tabel affiliate
         $affiliate = Affiliates::where('id', $id)
-            ->orWhere('user_id', $id) // Sebagai cadangan jika ID yang dikirim adalah ID User
+            ->orWhere('user_id', $id) 
             ->first();
 
         if (!$affiliate) {
@@ -200,25 +170,17 @@ class AffiliateController extends Controller
     public function getAffiliateList()
     {
         $affiliates = Affiliates::orderBy('created_at', 'desc')->get();
-
         return response()->json([
             'success' => true,
             'data' => $affiliates
         ]);
     }
 
-    // ==========================================
-    // FUNGSI BARU: CEK STATUS AFFILIATE USER
-    // ==========================================
- // ==========================================
-    // FUNGSI BARU: CEK STATUS AFFILIATE USER
-    // ==========================================
     public function checkUserStatus(Request $request)
     {
         $user = $request->user();
         $affiliate = Affiliates::where('user_id', $user->id)->first();
 
-        // 1. Jika belum terdaftar/belum aktif, return status saja
         if (!$affiliate || $affiliate->status !== 'active') {
             return response()->json([
                 'success' => true,
@@ -229,12 +191,10 @@ class AffiliateController extends Controller
             ]);
         }
 
-        // 2. Kalkulasi saldo (Sama seperti sebelumnya)
         $totalCommission = AffiliateCommissions::where('affiliate_id', $affiliate->id)->sum('commission_amount'); 
         $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)->whereIn('status', ['pending', 'approved'])->sum('amount');
         $availableBalance = $totalCommission - $totalWithdrawn;
 
-        // 3. AMBIL AKTIVITAS
         $recentWithdrawals = WithdrawalRequest::where('affiliate_id', $affiliate->id)
             ->orderBy('created_at', 'desc')->take(5)->get()
             ->map(fn($w) => [
@@ -252,8 +212,6 @@ class AffiliateController extends Controller
         $activities = $recentCommissions->concat($recentWithdrawals)
                         ->sortByDesc('date')->take(5)->values();
 
-        // 4. 🔥 MEMBANGUN DATA GRAFIK MINGGUAN (7 Hari Terakhir) 🔥
-        // Ambil data komisi 7 hari terakhir, dikelompokkan per tanggal
         $sevenDaysAgo = \Carbon\Carbon::today()->subDays(6);
         
         $rawChartData = AffiliateCommissions::select(
@@ -267,36 +225,40 @@ class AffiliateController extends Controller
             ->pluck('total', 'date')
             ->toArray();
 
-        // Siapkan array kosong untuk 7 hari (agar grafiknya tidak terputus meski 0)
         $weeklyChartData = [];
         for ($i = 6; $i >= 0; $i--) {
             $dateObj = \Carbon\Carbon::today()->subDays($i);
             $dateString = $dateObj->format('Y-m-d');
             
-            // Format label X-Axis (misal: "Sen", "Sel", "Rab")
-            // Gunakan $dateObj->isoFormat('ddd') untuk nama hari Bahasa Indonesia jika sudah diset locale ID
             $dayName = [
                 'Sun' => 'Min', 'Mon' => 'Sen', 'Tue' => 'Sel', 'Wed' => 'Rab', 
                 'Thu' => 'Kam', 'Fri' => 'Jum', 'Sat' => 'Sab'
             ][$dateObj->format('D')];
 
-            // Jika ini hari ini, ganti labelnya jadi "Hari Ini"
             if ($i == 0) $dayName = 'Hari Ini';
 
             $weeklyChartData[] = [
                 'name' => $dayName,
-                // Masukkan total komisi jika ada di database, jika tidak set ke 0
                 'k' => isset($rawChartData[$dateString]) ? (float) $rawChartData[$dateString] : 0
             ];
         }
 
-        // 5. Kirim response
+        // 🔥 AMBIL DATA HIT PER PRODUK DARI TABEL affiliate_products 🔥
+        $productClicks = DB::table('affiliate_products')
+            ->join('products', 'affiliate_products.product_id', '=', 'products.id')
+            ->where('affiliate_products.affiliate_id', $affiliate->id)
+            ->where('affiliate_products.clicks', '>', 0) // Hanya tampilkan yang pernah di-klik
+            ->select('products.name', 'products.image_url', 'affiliate_products.clicks') // 👈 SEKARANG NARIK GAMBAR JUGA
+            ->orderByDesc('affiliate_products.clicks')
+            ->get();
+
         $affiliate->is_affiliate = true;
         $affiliate->total_commission = (int) $totalCommission;
         $affiliate->available_balance = (int) $availableBalance;
-        $affiliate->total_clicks = $affiliate->total_clicks ?? 0; // 👈 PASTIKAN BARIS INI ADA
+        $affiliate->total_clicks = $affiliate->total_clicks ?? 0; 
         $affiliate->recent_activities = $activities; 
         $affiliate->weekly_chart_data = $weeklyChartData; 
+        $affiliate->product_clicks = $productClicks; // 👈 KIRIM KE REACT
 
         return response()->json([
             'success' => true,
@@ -304,13 +266,8 @@ class AffiliateController extends Controller
         ]);
     }
 
-    // ==========================================
-    // FUNGSI BARU: KATALOG PRODUK AFFILIATE
-    // ==========================================
     public function getAvailableProducts()
     {
-        // Menarik semua produk yang kolom is_affiliate_enabled nya bernilai true (1)
-        // (Note: Bakal error SQL sampai temenmu selesai bikin kolom ini di database)
         $products = Products::where('is_affiliate_enabled', true)->get();
 
         return response()->json([
@@ -321,7 +278,6 @@ class AffiliateController extends Controller
 
     public function requestWithdrawal(Request $request)
     {
-        // 1. Validasi inputan dari React
         $request->validate([
             'amount' => 'required|numeric|min:50000',
             'bank_name' => 'required|string',
@@ -335,18 +291,14 @@ class AffiliateController extends Controller
             return response()->json(['success' => false, 'message' => 'Anda bukan affiliate.'], 403);
         }
 
-        // 2. Hitung ulang saldo aslinya untuk mencegah kecurangan (hack nominal di frontend)
         $totalCommission = AffiliateCommissions::where('affiliate_id', $affiliate->id)->sum('commission_amount');
         
-        // ⚠️ PENTING: Cek phpMyAdmin kamu, pastikan nama kolom untuk nominal di tabel withdrawal_requests adalah 'amount'. 
-        // Jika beda, ubah kata 'amount' di bawah ini sesuai database-mu!
         $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)
                             ->whereIn('status', ['pending', 'approved'])
                             ->sum('amount');
 
         $availableBalance = $totalCommission - $totalWithdrawn;
 
-        // 3. Cek apakah saldonya cukup?
         if ($request->amount > $availableBalance) {
             return response()->json([
                 'success' => false, 
@@ -354,9 +306,6 @@ class AffiliateController extends Controller
             ], 400);
         }
 
-        // 4. Simpan ke database
-        // ⚠️ PENTING KEDUA: Pastikan nama kolom 'bank_name' dan 'account_number' juga sudah sesuai 
-        // dengan yang ada di tabel withdrawal_requests kamu!
         WithdrawalRequest::create([
             'affiliate_id' => $affiliate->id,
             'amount' => $request->amount,
@@ -374,11 +323,10 @@ class AffiliateController extends Controller
 
     public function show(string $id)
     {
-        // 1. Menarik data afiliasi beserta relasinya menggunakan Eager Loading agar efisien
         $affiliate = Affiliates::with([
-            'user',              // Mengambil data akun login terkait
-            'socialMedia',       // Mengambil dari tabel affiliate_social_media
-            'commissions'        // Mengambil dari tabel affiliate_commissions
+            'user',              
+            'socialMedia',       
+            'commissions'        
         ])->find($id);
 
         if (!$affiliate) {
@@ -388,12 +336,10 @@ class AffiliateController extends Controller
             ], 404);
         }
 
-        // 2. Mengemas dan merapikan data agar mudah dibaca oleh Frontend (React/Next.js)
         $formattedData = [
             'id' => $affiliate->id,
             'personal_info' => [
                 'full_name' => $affiliate->full_name,
-                // Jika email/phone kosong, coba ambil dari tabel users
                 'email' => $affiliate->email ?? ($affiliate->user ? $affiliate->user->email : '-'),
                 'phone' => $affiliate->phone ?? '-',
             ],
@@ -408,7 +354,6 @@ class AffiliateController extends Controller
                 'account_number' => $affiliate->account_number ?? '-',
                 'account_holder' => $affiliate->account_holder_name ?? '-',
             ],
-            // 3. Merangkum data Sosial Media
             'social_media' => $affiliate->socialMedia->map(function ($social) {
                 return [
                     'platform' => ucfirst($social->platform),
@@ -417,7 +362,6 @@ class AffiliateController extends Controller
                     'plan' => $social->promotion_plan
                 ];
             }),
-            // 4. Kalkulasi otomatis ringkasan komisi
             'commission_summary' => [
                 'total_earnings' => $affiliate->commissions->sum('commission_amount'),
                 'pending' => $affiliate->commissions->where('status', 'pending')->sum('commission_amount'),
@@ -429,28 +373,47 @@ class AffiliateController extends Controller
             'success' => true,
             'data' => $formattedData
         ], 200);
-  
     }
 
     // ==========================================
-    // FUNGSI BARU: REKAM KLIK LINK AFILIASI
+    // REKAM KLIK LINK AFILIASI (PER PRODUK MENGGUNAKAN affiliate_products)
     // ==========================================
     public function trackClick(Request $request)
     {
         $request->validate([
-            'ref' => 'required|string'
+            'ref' => 'required|string',
+            'product_id' => 'required|integer' // 👈 Wajib ada product_id dari frontend
         ]);
 
         $affiliate = Affiliates::where('affiliate_code', $request->ref)->first();
 
         if ($affiliate) {
-            // Tambah angka klik +1
+            // Hit global (lama) di tabel affiliates tetap jalan
             $affiliate->increment('total_clicks');
             
-            return response()->json([
-                'success' => true,
-                'message' => 'Klik berhasil direkam'
-            ]);
+            // Hit per produk (baru) disimpan ke affiliate_products
+            $clickRecord = DB::table('affiliate_products')
+                ->where('affiliate_id', $affiliate->id)
+                ->where('product_id', $request->product_id)
+                ->first();
+
+            if ($clickRecord) {
+                // Jika sudah ada, tinggal tambah +1
+                DB::table('affiliate_products')
+                    ->where('id', $clickRecord->id)
+                    ->increment('clicks');
+            } else {
+                // Jika produk belum pernah diklik sama sekali, buat baris baru
+                DB::table('affiliate_products')->insert([
+                    'affiliate_id' => $affiliate->id,
+                    'product_id' => $request->product_id,
+                    'clicks' => 1,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+            
+            return response()->json(['success' => true, 'message' => 'Klik berhasil direkam']);
         }
 
         return response()->json(['success' => false], 404);
