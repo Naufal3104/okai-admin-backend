@@ -11,15 +11,18 @@ class Products extends Model
     protected $table = 'products';
 
     protected $fillable = [
-        'name',
         'sku',
+        'name',
         'category',
-        'price',
         'description',
+        'price',
+        'stock',
+        'warehouse',
         'image_url',
         'is_active',
-        'is_affiliate_enabled', // 👈 PASTIKAN NAMANYA INI
-        'affiliate_commission', 
+        'is_affiliate_enabled',
+        'commission_type',   // 👈 Masukkan ini
+        'commission_value'   // 👈 Masukkan ini 
     ];
     // Relasi: Satu produk bisa ada di banyak gudang
     public function warehouseStocks() {
