@@ -32,8 +32,11 @@ class ProductController extends Controller
                 'status' => $product->is_active ? 'Published' : 'Draft',
                 'image_url' => $product->image_url,
                 'description' => $product->description,
-                'is_affiliate_enabled' => (bool) $product->is_affiliate_enabled, // 👈 TAMBAHKAN INI
-                'affiliate_commission' => $product->affiliate_commission,
+                'is_affiliate_enabled' => (bool) $product->is_affiliate_enabled,
+                
+                // 👇 UBAH JADI FORMAT BARU 👇
+                'commission_type' => $product->commission_type, 
+                'commission_value' => $product->commission_value,
             ];
         });
 
@@ -56,7 +59,9 @@ class ProductController extends Controller
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
             'is_active' => 'boolean',
             'is_affiliate_enabled' => 'in:0,1,true,false',
-            'affiliate_commission' => 'nullable|numeric|min:0|max:100',
+            // 👇 VALIDASI FORMAT BARU 👇
+            'commission_type' => 'nullable|string|in:percent,fixed',
+            'commission_value' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -82,6 +87,10 @@ class ProductController extends Controller
 
         unset($validatedData['image_file']);
         $validatedData['image_url'] = $finalImageUrl;
+
+        // 👇 SETTING DEFAULT KOMISI JIKA KOSONG 👇
+        $validatedData['commission_type'] = $request->input('commission_type', 'percent');
+        $validatedData['commission_value'] = $request->input('commission_value', 0);
 
         $product = Products::create($validatedData);
 
@@ -127,9 +136,11 @@ class ProductController extends Controller
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'in:0,1,true,false', // 👈 Diubah agar tidak error
-            'is_affiliate_enabled' => 'in:0,1,true,false', // 👈 Diubah agar tidak error
-            'affiliate_commission' => 'nullable|numeric|min:0|max:100'
+            'is_active' => 'in:0,1,true,false', 
+            'is_affiliate_enabled' => 'in:0,1,true,false', 
+            // 👇 VALIDASI FORMAT BARU 👇
+            'commission_type' => 'nullable|string|in:percent,fixed',
+            'commission_value' => 'nullable|numeric|min:0'
         ]);
 
         if ($validator->fails()) {
@@ -161,7 +172,9 @@ class ProductController extends Controller
         $product->is_active = in_array($request->input('is_active'), [1, '1', true, 'true'], true) ? 1 : 0;
         $product->is_affiliate_enabled = in_array($request->input('is_affiliate_enabled'), [1, '1', true, 'true'], true) ? 1 : 0;
         
-        $product->affiliate_commission = $request->input('affiliate_commission') ?? 15;
+        // 👇 SIMPAN NILAI KOMISI BARU 👇
+        $product->commission_type = $request->input('commission_type', 'percent');
+        $product->commission_value = $request->input('commission_value', 0);
 
         // Eksekusi Simpan ke DB
         $product->save();

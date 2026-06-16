@@ -8,30 +8,24 @@ use Illuminate\Http\Request;
 use App\Models\Orders;
 use App\Models\Products;
 use App\Models\Carts;
-use App\Models\OrderItems; // Pastikan model ini di-import! Sesuaikan namanya jika pakai OrderItem (tanpa s)
+use App\Models\OrderItems; 
+use App\Models\Promotions; 
 use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request)
     {
         $query = Orders::with(['user', 'items.product'])->orderBy('id', 'desc');
         
-        // 🚩 SOLUSI: Gunakan hasAnyRole untuk menangkap semua variasi penulisan admin
         $adminRoles = ['superadmin', 'super_admin', 'admin', 'administrator'];
 
         if (!$request->user()->hasAnyRole($adminRoles)) {
-            // Jika bukan salah satu dari admin di atas, batasi hanya pesanan miliknya saja
             $query->where('user_id', $request->user()->id);
         }
 
         $rawOrders = $query->get();
 
-        // 🚩 SYNC STATUS PEMBAYARAN XENDIT UNTUK SEMUA PESANAN PENDING
-        // Memastikan status di halaman riwayat pesanan (Customer/Admin) selalu ter-update
         foreach ($rawOrders as $order) {
             if ($order->status === 'pending' && strtolower($order->payment_method) !== 'cod' && $order->invoice_no) {
                 try {
@@ -62,10 +56,7 @@ class OrderController extends Controller
                 return $productName . ' (' . $item->quantity . 'x)';
             })->implode(', ');
 
-            // 👇 PERUBAHAN DI SINI: Tambahkan `use ($order)` agar bisa akses ID order
             $rawItemsArray = $order->items->map(function ($item) use ($order) {
-                
-                // 🔥 LOGIKA CEK ULASAN: Apakah produk ini di order ini sudah diulas?
                 $isReviewed = \App\Models\Review::where('order_id', $order->id)
                                                 ->where('product_id', $item->product_id)
                                                 ->exists();
@@ -75,7 +66,7 @@ class OrderController extends Controller
                     'name' => $item->product ? $item->product->name : 'Produk Dihapus',
                     'qty' => $item->quantity,
                     'price' => $item->price,
-                    'is_reviewed' => $isReviewed, // 👈 KIRIM STATUS INI KE REACT
+                    'is_reviewed' => $isReviewed,
                 ];
             });
 
@@ -98,10 +89,6 @@ class OrderController extends Controller
         ], 200);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     * INI ADALAH MESIN UNTUK PROSES CHECKOUT DARI NEXT.JS
-     */
     public function store(Request $request)
     {
         $request->validate([
@@ -109,40 +96,49 @@ class OrderController extends Controller
             'payment_method' => 'required|string',
             'total_price' => 'required|numeric',
             'items' => 'required|array',
-            'affiliate_code' => 'nullable|string', // 👈 Tambahkan validasi untuk menerima kode
+            'affiliate_code' => 'nullable|string', 
+            'promotion_code' => 'nullable|string', 
+            'discount_amount' => 'nullable|numeric', 
         ]);
 
         return DB::transaction(function () use ($request) {
            $userId = $request->user()->id;
 
-            // 1. Terjemahkan Kode Afiliasi (Frontend mengirim 'affiliate_code', bukan ID)
+            // 1. CEGAH SELF-REFERRAL (DI AKALI) 🔥
             $affiliateId = null;
             if ($request->filled('affiliate_code')) {
-                // Cari ID Affiliate berdasarkan kode yang dikirim dari React
                 $affiliate = Affiliates::where('affiliate_code', $request->affiliate_code)->first();
-                if ($affiliate) {
+                // Jika affiliate valid DAN bukan milik pembeli sendiri, baru masukkan ID-nya
+                if ($affiliate && $affiliate->user_id !== $userId) {
                     $affiliateId = $affiliate->id;
+                }
+            }
+
+            // 1.5. LOGIKA KUPON PROMO
+            $id_promotion = null;
+            if ($request->filled('promotion_code')) {
+                $promo = Promotions::where('code', strtoupper(trim($request->promotion_code)))->first();
+                if ($promo) {
+                    $id_promotion = $promo->id_promotion;
+                    $promo->increment('used_count'); 
                 }
             }
 
             // 2. Buat Header Order
             $order = Orders::create([
-                // WAJIB ADA: Nomor referensi unik untuk Xendit dan pelacakan resi
                 'invoice_no' => 'INV-' . date('Ymd') . '-' . rand(1000, 9999), 
-                
                 'user_id' => $userId, 
                 'total_price' => $request->total_price,
                 'address' => $request->address,
                 'payment_method' => $request->payment_method,
                 'status' => 'pending', 
                 'affiliate_id' => $affiliateId, 
+                'id_promotion' => $id_promotion, 
             ]);
 
             // 3. Simpan Detail Produk yang dibeli
             foreach ($request->items as $item) {
-                // AMAN DARI HACKER: Ambil data produk asli dari database
                 $product = Products::find($item['product_id']);
-
                 if ($product) {
                     OrderItems::create([
                         'order_id' => $order->id,
@@ -153,10 +149,10 @@ class OrderController extends Controller
                 }
             }
 
-            // 4. Bersihkan Keranjang di Database setelah pesanan dibuat
+            // 4. Bersihkan Keranjang
             Carts::where('user_id', $userId)->delete();
 
-            // 5. Integrasi Xendit (Jika Metode Bukan COD)
+            // 5. Integrasi Xendit
             $paymentUrl = null;
             if ($request->payment_method !== 'cod') {
                 $secretKey = env('XENDIT_SECRET_KEY');
@@ -177,38 +173,27 @@ class OrderController extends Controller
                     $paymentUrl = $xenditResponse->json()['invoice_url'];
                     $order->update(['payment_url' => $paymentUrl]);
                 } else {
-                    // Batalkan seluruh transaksi DB jika Xendit sedang error
                     throw new \Exception("Gagal membuat tagihan pembayaran."); 
                 }
             }
 
-            // 6. Kembalikan Respons ke Frontend
             return response()->json([
                 'success' => true,
                 'message' => 'Pesanan berhasil dibuat!',
                 'data' => $order,
-                'payment_url' => $paymentUrl // URL Xendit (Atau bernilai null jika COD)
+                'payment_url' => $paymentUrl
             ], 201);
         });
-    }
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
     }
 
     public function show($id)
     {
-        // Jika ID diawali dengan ORD-, ambil angka di paling belakang (ID asli)
         $originalId = $id;
         if (str_starts_with($id, 'ORD-')) {
             $parts = explode('-', $id);
             $originalId = end($parts);
         }
 
-        // Cari pesanan berdasarkan ID mentahnya atau nomor invoice
         $order = Orders::with(['user', 'order_items.product'])
             ->where('id', $originalId)
             ->orWhere('invoice_no', $id)
@@ -239,7 +224,29 @@ class OrderController extends Controller
         $data['method'] = $order->payment_method ?? 'Standard Reguler'; 
         $data['date'] = $order->created_at ? $order->created_at->format('d M Y') : '-'; 
 
-        // --- 🚩 SYNC STATUS PEMBAYARAN XENDIT ---
+        // LOGIKA HITUNG DISKON PROMO
+        $discountAmount = 0;
+        $promoCode = null;
+        if ($order->id_promotion) {
+            $promo = \App\Models\Promotions::where('id_promotion', $order->id_promotion)->first();
+            if ($promo) {
+                $promoCode = $promo->code;
+                $subtotal = $order->order_items->sum(function($item) {
+                    return $item->price * $item->quantity;
+                });
+                
+                if ($promo->type === 'percentage') {
+                    $discountAmount = ($subtotal * $promo->value) / 100;
+                } else {
+                    $discountAmount = $promo->value;
+                }
+                if ($discountAmount > $subtotal) $discountAmount = $subtotal;
+            }
+        }
+        $data['discount_amount'] = $discountAmount;
+        $data['promo_code'] = $promoCode;
+
+        // SYNC STATUS PEMBAYARAN XENDIT
         if ($order->status === 'pending' && strtolower($order->payment_method) !== 'cod' && $order->invoice_no) {
             try {
                 $secretKey = env('XENDIT_SECRET_KEY');
@@ -263,7 +270,7 @@ class OrderController extends Controller
             }
         }
 
-        // --- FETCH TRACKING DARI BITESHIP ---
+        // FETCH TRACKING DARI BITESHIP
         $data['tracking'] = null;
         if ($order->waybill_id && $order->courier_company) {
             $trackingResponse = \Illuminate\Support\Facades\Http::withHeaders([
@@ -279,22 +286,25 @@ class OrderController extends Controller
                     'link' => "https://biteship.com/id/tracking/{$order->waybill_id}" 
                 ];
 
-                // --- 🚩 OTOMATISASI STATUS DELIVERED + CAIRKAN KOMISI ---
+                // OTOMATISASI STATUS DELIVERED + CAIRKAN KOMISI
                 if (strtolower($trackingData['status']) === 'delivered' && $order->status !== 'delivered') {
                     $order->status = 'delivered';
                     $order->save();
                     $data['status'] = 'delivered';
 
-                    // CAIRKAN KOMISI KARENA RESI ASLI SUDAH SAMPAI
+                    // 💰 RUMUS BARU KOMISI AFILIASI (PER PRODUK) 💰
                     if ($order->affiliate_id) {
                         $affiliate = \App\Models\Affiliates::find($order->affiliate_id);
                         if ($affiliate) {
                             $totalCommission = 0;
-                            $commissionRate = $affiliate->commission_rate ?? 10; 
                             
                             foreach ($order->order_items as $item) {
                                 if ($item->product && $item->product->is_affiliate_enabled) {
-                                    $itemCommission = ($commissionRate / 100) * $item->price * $item->quantity;
+                                    if ($item->product->commission_type === 'fixed') {
+                                        $itemCommission = $item->product->commission_value * $item->quantity;
+                                    } else {
+                                        $itemCommission = ($item->product->commission_value / 100) * $item->price * $item->quantity;
+                                    }
                                     $totalCommission += $itemCommission;
                                 }
                             }
@@ -307,7 +317,7 @@ class OrderController extends Controller
                                     \Illuminate\Support\Facades\DB::table('affiliate_commissions')->insert([
                                         'affiliate_id' => $affiliate->id,
                                         'order_id' => $order->id,
-                                        'commission_amount' => $totalCommission, // 👈 SUDAH DIPERBAIKI (s dobel)
+                                        'commission_amount' => $totalCommission, 
                                         'status' => 'pending', 
                                         'created_at' => now(),
                                         'updated_at' => now(),
@@ -326,33 +336,6 @@ class OrderController extends Controller
         ], 200);
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
-    }
-
-    /**
-     * Get orders that are not pending for logistics tracking.
-     */
     public function getActiveShipments()
     {
         $orders = Orders::where('status', '!=', 'pending')
@@ -367,7 +350,7 @@ class OrderController extends Controller
                 'id' => $order->id,
                 'resi' => $hasWaybill ? $order->waybill_id : null,
                 'invoice_no' => $order->invoice_no,
-                'item' => 'Order #' . $order->id, // Bisa dikembangkan untuk ambil nama produk pertama
+                'item' => 'Order #' . $order->id, 
                 'customer' => $order->user ? $order->user->name : 'Guest',
                 'status' => ucfirst($order->status),
                 'lastLocation' => 'Click to track',
@@ -458,7 +441,9 @@ class OrderController extends Controller
                 array_push($destParts, $parsedPostal);
             }
             if (count($destParts) >= 4) {
-                array_pop($destParts); array_pop($destParts); array_pop($destParts);
+                array_pop($destParts);
+                array_pop($destParts);
+                array_pop($destParts);
             }
             $destAddress = implode(', ', $destParts);
         }
@@ -549,16 +534,19 @@ class OrderController extends Controller
             $order->status = 'delivered';
             $order->save();
 
-            // 💰🔥 EKSEKUSI KOMISI AFILIASI (VERSI TABEL COMMISSIONS) 🔥💰
+            // 💰🔥 RUMUS BARU KOMISI AFILIASI (PER PRODUK) 🔥💰
             if ($order->affiliate_id) {
                 $affiliate = \App\Models\Affiliates::find($order->affiliate_id);
                 if ($affiliate) {
                     $totalCommission = 0;
-                    $commissionRate = $affiliate->commission_rate ?? 10; 
                     
                     foreach ($order->order_items as $item) {
                         if ($item->product && $item->product->is_affiliate_enabled) {
-                            $itemCommission = ($commissionRate / 100) * $item->price * $item->quantity;
+                            if ($item->product->commission_type === 'fixed') {
+                                $itemCommission = $item->product->commission_value * $item->quantity;
+                            } else {
+                                $itemCommission = ($item->product->commission_value / 100) * $item->price * $item->quantity;
+                            }
                             $totalCommission += $itemCommission;
                         }
                     }
@@ -572,7 +560,7 @@ class OrderController extends Controller
                             \Illuminate\Support\Facades\DB::table('affiliate_commissions')->insert([
                                 'affiliate_id' => $affiliate->id,
                                 'order_id' => $order->id,
-                                'commission_amount' => $totalCommission, // 👈 SUDAH DIPERBAIKI (s dobel)
+                                'commission_amount' => $totalCommission, 
                                 'status' => 'pending',
                                 'created_at' => now(),
                                 'updated_at' => now(),
@@ -609,7 +597,6 @@ class OrderController extends Controller
                 return response()->json(['success' => false, 'message' => 'API Key Binderbyte tidak ditemukan'], 500);
             }
 
-            // Melakukan request tracking secara langsung ke API Binderbyte
             $response = \Illuminate\Support\Facades\Http::get("https://api.binderbyte.com/v1/track", [
                 'api_key' => $binderbyteKey,
                 'courier' => $courier,
@@ -640,11 +627,9 @@ class OrderController extends Controller
 
     public function xenditWebhook(Request $request)
     {
-        // 1. Ambil data payload dari Xendit
-        $external_id = $request->input('external_id'); // Format: INV-2026xxxx-xxxx
-        $status = strtoupper($request->input('status', '')); // 'PAID', 'SETTLED', 'EXPIRED', dll
+        $external_id = $request->input('external_id'); 
+        $status = strtoupper($request->input('status', '')); 
 
-        // 2. Jika status dibayar, perbarui status order di database
         if (in_array($status, ['PAID', 'SETTLED'])) {
             $order = Orders::where('invoice_no', $external_id)->first();
             if ($order && $order->status === 'pending') {
@@ -653,7 +638,6 @@ class OrderController extends Controller
             }
         }
 
-        // 3. Wajib membalas dengan status 200 OK agar Xendit tidak mencoba mengirim ulang webhook
         return response()->json(['success' => true, 'message' => 'Webhook diterima.']);
     }
 

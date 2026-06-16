@@ -65,11 +65,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // --- MANAJEMEN ADMIN ---
     Route::apiResource('users', UserController::class);
+    
+    // 👇 ROUTE BARU CEK PROMO: Wajib ditaruh sebelum apiResource('promotions')
+    Route::post('/promotions/check', [PromotionController::class, 'check']);
     Route::apiResource('promotions', PromotionController::class);
+    
     Route::apiResource('warehouses', \App\Http\Controllers\Api\WarehouseController::class);
     Route::post('/warehouses/{id}/products', [\App\Http\Controllers\Api\WarehouseController::class, 'updateProductStock']);
     Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateStatus']);
     Route::get('/track', [OrderController::class, 'trackResi']);
+    
     // Tambah/Edit/Hapus Produk
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{id}', [ProductController::class, 'update']);
@@ -80,17 +85,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/carts/{id}', [CartController::class, 'update']); // Ubah jumlah kuantitas
     Route::delete('/carts/{id}', [CartController::class, 'destroy']); // Hapus barang dari keranjang
 
-
     // Rute untuk membalas ulasan pembeli
     Route::post('/reviews/{id}/reply', [\App\Http\Controllers\Api\ReviewController::class, 'reply']);
 
     // --- AFFILIATE MANAGEMENT ---
-    // 👇 ROUTE BARU UNTUK MENERIMA DATA DARI FORMULIR PENGAJUAN (WEB KAMBI)
+    // ROUTE UNTUK MENERIMA DATA DARI FORMULIR PENGAJUAN (WEB KAMBI)
     Route::post('/affiliate-requests', [AffiliateController::class, 'storeRequest']);
     // Route untuk mengambil detail satu affiliator spesifik
     Route::get('/affiliates/{id}', [AffiliateController::class, 'show']);
 
-    // 👇 ROUTE BARU UNTUK TOMBOL TERIMA/TOLAK (ADMIN PORTAL)
+    // ROUTE UNTUK TOMBOL TERIMA/TOLAK (ADMIN PORTAL)
     Route::patch('/affiliates/{id}/status', [AffiliateController::class, 'updateAffiliateStatus']);
 
     // --- CEK STATUS AFFILIATE USER SAAT INI ---
@@ -99,16 +103,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- AMBIL PRODUK YANG BISA DI-AFILIASIKAN ---
     Route::get('/affiliate/available-products', [AffiliateController::class, 'getAvailableProducts']);
     Route::post('/user/affiliate-withdraw', [App\Http\Controllers\Api\AffiliateController::class, 'requestWithdrawal']);
+    
     Route::prefix('affiliate')->group(function () {
         Route::get('/stats', [AffiliateController::class, 'getStats']);
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
         Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateWithdrawalStatus']);
         Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
     });
+    
+    // Chatbot route
+    Route::post('/chat/assistant', [\App\Http\Controllers\Api\ChatbotController::class, 'handleChat']);
 
     Route::post('/reviews', [ReviewController::class, 'store']);
 });
 
-//testing
-
+// Testing
 Route::get('/test-delivery/{id}', [\App\Http\Controllers\Api\OrderController::class, 'simulateDelivery']);
