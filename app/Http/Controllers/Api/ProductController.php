@@ -28,15 +28,19 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
                 'price' => $product->price,
-                'stock' => $product->warehouseStocks()->sum('stock'), // Kalkulasi dari semua gudang
+                'stock' => $product->warehouseStocks()->max('stock') ?? 0, // 🚩 UBAH: Hanya menampilkan stok terbanyak dari 1 gudang
                 'status' => $product->is_active ? 'Published' : 'Draft',
                 'image_url' => $product->image_url,
                 'description' => $product->description,
                 'is_affiliate_enabled' => (bool) $product->is_affiliate_enabled,
                 
-                // 👇 UBAH JADI FORMAT BARU 👇
+                // 👇 FORMAT DROPSHIP 👇
                 'commission_type' => $product->commission_type, 
                 'commission_value' => $product->commission_value,
+                'is_dropship_enabled' => (bool) $product->is_dropship_enabled,
+                'dropship_min_qty' => $product->dropship_min_qty,
+                'dropship_discount_type' => $product->dropship_discount_type,
+                'dropship_discount_value' => $product->dropship_discount_value,
             ];
         });
 
@@ -62,6 +66,10 @@ class ProductController extends Controller
             // 👇 VALIDASI FORMAT BARU 👇
             'commission_type' => 'nullable|string|in:percent,fixed',
             'commission_value' => 'nullable|numeric|min:0',
+            'is_dropship_enabled' => 'boolean',
+            'dropship_min_qty' => 'nullable|integer|min:1',
+            'dropship_discount_type' => 'nullable|string|in:percent,fixed',
+            'dropship_discount_value' => 'nullable|numeric|min:0'
         ]);
 
         if ($validator->fails()) {
@@ -111,7 +119,7 @@ class ProductController extends Controller
         }
 
         $data = $product->toArray();
-        $data['stock'] = $product->warehouseStocks()->sum('stock');
+        $data['stock'] = $product->warehouseStocks()->max('stock') ?? 0; // 🚩 UBAH: Hanya menampilkan stok terbanyak dari 1 gudang
 
         return response()->json([
             'success' => true,
@@ -140,7 +148,11 @@ class ProductController extends Controller
             'is_affiliate_enabled' => 'in:0,1,true,false', 
             // 👇 VALIDASI FORMAT BARU 👇
             'commission_type' => 'nullable|string|in:percent,fixed',
-            'commission_value' => 'nullable|numeric|min:0'
+            'commission_value' => 'nullable|numeric|min:0',
+            'is_dropship_enabled' => 'boolean',
+            'dropship_min_qty' => 'nullable|integer|min:1',
+            'dropship_discount_type' => 'nullable|string|in:percent,fixed',
+            'dropship_discount_value' => 'nullable|numeric|min:0'
         ]);
 
         if ($validator->fails()) {
@@ -175,6 +187,12 @@ class ProductController extends Controller
         // 👇 SIMPAN NILAI KOMISI BARU 👇
         $product->commission_type = $request->input('commission_type', 'percent');
         $product->commission_value = $request->input('commission_value', 0);
+
+        // 👇 SIMPAN NILAI DROPSHIP 👇
+        $product->is_dropship_enabled = in_array($request->input('is_dropship_enabled'), [1, '1', true, 'true'], true) ? 1 : 0;
+        $product->dropship_min_qty = $request->input('dropship_min_qty', 1);
+        $product->dropship_discount_type = $request->input('dropship_discount_type', 'percent');
+        $product->dropship_discount_value = $request->input('dropship_discount_value', 0);
 
         // Eksekusi Simpan ke DB
         $product->save();

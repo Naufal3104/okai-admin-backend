@@ -21,9 +21,13 @@ class Products extends Model
         'image_url',
         'is_active',
         'is_affiliate_enabled',
-        'commission_type',   // 👈 Masukkan ini
-        'commission_value'   // 👈 Masukkan ini 
-    ];
+        'commission_type',   // 👉 Masukkan ini
+        'commission_value',  // 👉 Masukkan ini
+        'is_dropship_enabled',
+        'dropship_min_qty',
+        'dropship_discount_type',
+        'dropship_discount_value',
+        ];
     // Relasi: Satu produk bisa ada di banyak gudang
     public function warehouseStocks() {
         return $this->hasMany(ProductWarehouses::class, 'id_product');

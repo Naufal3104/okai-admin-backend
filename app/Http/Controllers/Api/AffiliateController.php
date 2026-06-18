@@ -100,8 +100,7 @@ class AffiliateController extends Controller
 
     public function getWithdrawals()
     {
-        $requests = WithdrawalRequest::with('affiliate')
-            ->where('status', 'pending')
+        $requests = WithdrawalRequest::with(['affiliate', 'affiliate.user'])
             ->orderBy('created_at', 'desc')
             ->get();
 

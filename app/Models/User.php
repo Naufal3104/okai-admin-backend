@@ -59,4 +59,9 @@ class User extends Authenticatable implements MustVerifyEmail
     public function affiliate() {
         return $this->hasOne(Affiliates::class, 'user_id');
     }
+
+    // Relasi: Satu user (admin) bisa memegang 1 gudang
+    public function warehouse() {
+        return $this->hasOne(Warehouses::class, 'user_id', 'id');
+    }
 }

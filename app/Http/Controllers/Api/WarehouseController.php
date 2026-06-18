@@ -13,7 +13,15 @@ class WarehouseController extends Controller
     // 1. Ambil Semua Data Gudang (Index)
     public function index(Request $request)
     {
-        $warehouses = Warehouses::orderBy('id_warehouse', 'desc')->get();
+        $user = auth('sanctum')->user();
+
+        $query = Warehouses::query()->with('user');
+
+        if ($user && $user->hasRole('admin')) {
+            $query->where('user_id', $user->id);
+        }
+
+        $warehouses = $query->orderBy('id_warehouse', 'desc')->get();
 
         return response()->json([
             'success' => true,
@@ -30,6 +38,7 @@ class WarehouseController extends Controller
             'city' => 'nullable|string|max:100',
             'province' => 'nullable|string|max:100',
             'postal_code' => 'nullable|string|max:10',
+            'user_id' => 'nullable|exists:users,id'
         ]);
 
         if ($validator->fails()) {
@@ -94,6 +103,7 @@ class WarehouseController extends Controller
             'city' => 'nullable|string|max:100',
             'province' => 'nullable|string|max:100',
             'postal_code' => 'nullable|string|max:10',
+            'user_id' => 'nullable|exists:users,id|unique:warehouses,user_id,' . $id . ',id_warehouse'
         ]);
 
         if ($validator->fails()) {
@@ -106,7 +116,7 @@ class WarehouseController extends Controller
             'success' => true,
             'message' => 'Gudang berhasil diperbarui!',
             'data' => $warehouse
-        ]);
+        ], 200);
     }
 
     // 5. Hapus Gudang (Destroy)

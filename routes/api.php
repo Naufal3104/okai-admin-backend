@@ -46,6 +46,11 @@ Route::post('/affiliate/validate-code', [\App\Http\Controllers\Api\AffiliateCont
 // ==========================================
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::post('/shipping/rate', [\App\Http\Controllers\Api\OrderController::class, 'getShippingRate']);
+
+    Route::get('/system-settings', [\App\Http\Controllers\Api\SystemSettingController::class, 'getSettings']);
+    Route::post('/system-settings', [\App\Http\Controllers\Api\SystemSettingController::class, 'updateSettings']);
+
     // --- AUTHENTICATION ---
     Route::post('/logout', [UserController::class, 'logout']);
 
@@ -61,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders/{id}/available-warehouses', [OrderController::class, 'getAvailableWarehouses']);
     Route::post('/orders/{id}/mark-paid', [OrderController::class, 'markAsPaid']);
     Route::post('/orders/{id}/ship', [OrderController::class, 'shipWithBiteship']);
+    Route::post('/orders/{id}/ship-manual', [OrderController::class, 'shipManual']);
     Route::post('/orders/{id}/simulate-delivery', [OrderController::class, 'simulateDelivery']);
 
     // --- MANAJEMEN ADMIN ---
