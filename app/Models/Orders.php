@@ -20,10 +20,14 @@ class Orders extends Model
         'payment_url',
         'status',
         'id_promotion',
+        'discount_amount',
         'courier_company',
         'courier_type',
         'shipping_cost',
         'waybill_id',
+        'warehouse_id',
+        'is_dropship',
+        'dropshipper_name',
     ];
 
     public function user() {

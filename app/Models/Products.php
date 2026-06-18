@@ -27,6 +27,10 @@ class Products extends Model
         'dropship_min_qty',
         'dropship_discount_type',
         'dropship_discount_value',
+        'weight',
+        'length',
+        'width',
+        'height',
         ];
     // Relasi: Satu produk bisa ada di banyak gudang
     public function warehouseStocks() {

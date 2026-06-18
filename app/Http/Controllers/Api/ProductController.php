@@ -34,6 +34,12 @@ class ProductController extends Controller
                 'description' => $product->description,
                 'is_affiliate_enabled' => (bool) $product->is_affiliate_enabled,
                 
+                // Dimensions
+                'weight' => $product->weight,
+                'length' => $product->length,
+                'width' => $product->width,
+                'height' => $product->height,
+
                 // 👇 FORMAT DROPSHIP 👇
                 'commission_type' => $product->commission_type, 
                 'commission_value' => $product->commission_value,
@@ -69,7 +75,11 @@ class ProductController extends Controller
             'is_dropship_enabled' => 'boolean',
             'dropship_min_qty' => 'nullable|integer|min:1',
             'dropship_discount_type' => 'nullable|string|in:percent,fixed',
-            'dropship_discount_value' => 'nullable|numeric|min:0'
+            'dropship_discount_value' => 'nullable|numeric|min:0',
+            'weight' => 'required|numeric|min:0',
+            'length' => 'required|numeric|min:0',
+            'width' => 'required|numeric|min:0',
+            'height' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -152,7 +162,11 @@ class ProductController extends Controller
             'is_dropship_enabled' => 'boolean',
             'dropship_min_qty' => 'nullable|integer|min:1',
             'dropship_discount_type' => 'nullable|string|in:percent,fixed',
-            'dropship_discount_value' => 'nullable|numeric|min:0'
+            'dropship_discount_value' => 'nullable|numeric|min:0',
+            'weight' => 'required|numeric|min:0',
+            'length' => 'required|numeric|min:0',
+            'width' => 'required|numeric|min:0',
+            'height' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -180,6 +194,12 @@ class ProductController extends Controller
         $product->description = $validatedData['description'] ?? '';
         $product->image_url = $finalImageUrl;
         
+        // Dimensions
+        $product->weight = $validatedData['weight'];
+        $product->length = $validatedData['length'];
+        $product->width = $validatedData['width'];
+        $product->height = $validatedData['height'];
+
         // Trik konversi string "1"/"0" dari Frontend menjadi integer untuk MySQL
         $product->is_active = in_array($request->input('is_active'), [1, '1', true, 'true'], true) ? 1 : 0;
         $product->is_affiliate_enabled = in_array($request->input('is_affiliate_enabled'), [1, '1', true, 'true'], true) ? 1 : 0;

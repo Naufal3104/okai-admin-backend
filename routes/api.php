@@ -37,6 +37,8 @@ Route::get('/products/{id}/reviews', [ReviewController::class, 'index']);
 
 // Xendit Webhook
 Route::post('/xendit/webhook', [OrderController::class, 'xenditWebhook']);
+// Biteship Webhook
+Route::post('/biteship/webhook', [OrderController::class, 'biteshipWebhook']);
 
 // Affiliate Tracking
 Route::post('/affiliate/track', [\App\Http\Controllers\Api\AffiliateController::class, 'trackClick']);
@@ -72,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/{id}/ship', [OrderController::class, 'shipWithBiteship']);
     Route::post('/orders/{id}/ship-manual', [OrderController::class, 'shipManual']);
     Route::post('/orders/{id}/simulate-delivery', [OrderController::class, 'simulateDelivery']);
+    Route::post('/orders/{id}/sync-tracking', [OrderController::class, 'syncTracking']);
 
     // --- MANAJEMEN ADMIN ---
     Route::apiResource('users', UserController::class);

@@ -420,23 +420,38 @@ class AffiliateController extends Controller
 
     public function validateCode(Request $request)
     {
-        $code = $request->input('code');
-        $user = auth('sanctum')->user(); // Bisa null jika guest
+        try {
+            $code = $request->code;
+            
+            if (!$code) {
+                return response()->json(['success' => false, 'message' => 'Kode referral wajib diisi.']);
+            }
 
-        if (!$code) {
-            return response()->json(['success' => false, 'message' => 'Kode referral tidak valid.']);
+            $affiliate = Affiliates::where('affiliate_code', $code)->where('status', 'active')->first();
+
+            if (!$affiliate) {
+                return response()->json(['success' => false, 'message' => 'Kode referral tidak ditemukan atau tidak aktif.']);
+            }
+
+            // Cek jika user sedang login dan mencoba pakai kode sendiri
+            $user = $request->user('sanctum');
+            if ($user && $affiliate->user_id == $user->id) {
+                return response()->json(['success' => false, 'message' => 'Anda tidak bisa menggunakan kode referral milik sendiri.']);
+            }
+
+            return response()->json([
+                'success' => true, 
+                'message' => 'Kode referral berhasil diterapkan.',
+                'data' => [
+                    'affiliate_id' => $affiliate->id,
+                    'full_name' => $affiliate->full_name
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Kesalahan server: ' . $e->getMessage()
+            ], 500);
         }
-
-        $affiliate = \App\Models\Affiliates::where('affiliate_code', $code)->where('status', 'approved')->first();
-
-        if (!$affiliate) {
-            return response()->json(['success' => false, 'message' => 'Kode referral tidak ditemukan atau belum aktif.']);
-        }
-
-        if ($user && $affiliate->user_id === $user->id) {
-            return response()->json(['success' => false, 'message' => 'Anda tidak bisa menggunakan kode referral Anda sendiri.']);
-        }
-
-        return response()->json(['success' => true, 'message' => 'Kode referral valid.']);
     }
 }

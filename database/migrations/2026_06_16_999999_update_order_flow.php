@@ -21,25 +21,38 @@ return new class extends Migration
             });
         }
 
-        // 2. PRODUCTS - Add Dropship Configuration
+        // 2. PRODUCTS - Add Dropship Configuration & Dimensions
         if (Schema::hasTable('products')) {
             Schema::table('products', function (Blueprint $table) {
                 if (!Schema::hasColumn('products', 'is_dropship_enabled')) {
                     $table->boolean('is_dropship_enabled')->default(false);
                 }
                 if (!Schema::hasColumn('products', 'dropship_min_qty')) {
-                    $table->integer('dropship_min_qty')->nullable()->default(1);
+                    $table->integer('dropship_min_qty')->default(1);
                 }
                 if (!Schema::hasColumn('products', 'dropship_discount_type')) {
-                    $table->enum('dropship_discount_type', ['percent', 'fixed'])->nullable();
+                    $table->enum('dropship_discount_type', ['percent', 'fixed'])->default('percent');
                 }
                 if (!Schema::hasColumn('products', 'dropship_discount_value')) {
                     $table->decimal('dropship_discount_value', 15, 2)->default(0);
                 }
+                // Dimensions for Biteship
+                if (!Schema::hasColumn('products', 'weight')) {
+                    $table->integer('weight')->default(1000);
+                }
+                if (!Schema::hasColumn('products', 'length')) {
+                    $table->integer('length')->default(10);
+                }
+                if (!Schema::hasColumn('products', 'width')) {
+                    $table->integer('width')->default(10);
+                }
+                if (!Schema::hasColumn('products', 'height')) {
+                    $table->integer('height')->default(10);
+                }
             });
         }
 
-        // 3. ORDERS - Add Warehouse Tracking & Dropship Info
+        // 3. ORDERS - Add Warehouse Tracking, Dropship Info & Discounts
         if (Schema::hasTable('orders')) {
             Schema::table('orders', function (Blueprint $table) {
                 if (!Schema::hasColumn('orders', 'warehouse_id')) {
@@ -51,6 +64,9 @@ return new class extends Migration
                 }
                 if (!Schema::hasColumn('orders', 'dropshipper_name')) {
                     $table->string('dropshipper_name')->nullable();
+                }
+                if (!Schema::hasColumn('orders', 'discount_amount')) {
+                    $table->decimal('discount_amount', 15, 2)->default(0);
                 }
             });
         }
@@ -88,13 +104,13 @@ return new class extends Migration
         if (Schema::hasTable('orders')) {
             Schema::table('orders', function (Blueprint $table) {
                 $table->dropForeign(['warehouse_id']);
-                $table->dropColumn(['warehouse_id', 'is_dropship', 'dropshipper_name']);
+                $table->dropColumn(['warehouse_id', 'is_dropship', 'dropshipper_name', 'discount_amount']);
             });
         }
 
         if (Schema::hasTable('products')) {
             Schema::table('products', function (Blueprint $table) {
-                $table->dropColumn(['is_dropship_enabled', 'dropship_min_qty', 'dropship_discount_type', 'dropship_discount_value']);
+                $table->dropColumn(['is_dropship_enabled', 'dropship_min_qty', 'dropship_discount_type', 'dropship_discount_value', 'weight', 'length', 'width', 'height']);
             });
         }
 
