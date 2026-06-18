@@ -92,8 +92,8 @@ class AffiliateController extends Controller
             'data' => [
                 'total_mitra' => Affiliates::count(),
                 'total_referrals' => AffiliateCommissions::count(),
-                'pending_commissions' => WithdrawalRequest::where('status', 'pending')->sum('amount'),
-                'paid_commissions' => WithdrawalRequest::where('status', 'approved')->sum('amount'),
+                'pending_commissions' => WithdrawalRequest::whereIn('status', ['pending', 'approved'])->sum('amount'),
+                'paid_commissions' => WithdrawalRequest::where('status', 'paid')->sum('amount'),
             ]
         ]);
     }
@@ -191,7 +191,7 @@ class AffiliateController extends Controller
         }
 
         $totalCommission = AffiliateCommissions::where('affiliate_id', $affiliate->id)->sum('commission_amount'); 
-        $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)->whereIn('status', ['pending', 'approved'])->sum('amount');
+        $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)->whereIn('status', ['pending', 'approved', 'paid'])->sum('amount');
         $availableBalance = $totalCommission - $totalWithdrawn;
 
         $recentWithdrawals = WithdrawalRequest::where('affiliate_id', $affiliate->id)
@@ -293,7 +293,7 @@ class AffiliateController extends Controller
         $totalCommission = AffiliateCommissions::where('affiliate_id', $affiliate->id)->sum('commission_amount');
         
         $totalWithdrawn = WithdrawalRequest::where('affiliate_id', $affiliate->id)
-                            ->whereIn('status', ['pending', 'approved'])
+                            ->whereIn('status', ['pending', 'approved', 'paid'])
                             ->sum('amount');
 
         $availableBalance = $totalCommission - $totalWithdrawn;
@@ -363,7 +363,7 @@ class AffiliateController extends Controller
             }),
             'commission_summary' => [
                 'total_earnings' => $affiliate->commissions->sum('commission_amount'),
-                'pending' => $affiliate->commissions->where('status', 'pending')->sum('commission_amount'),
+                'pending' => $affiliate->commissions->whereIn('status', ['pending', 'approved'])->sum('commission_amount'),
                 'paid' => $affiliate->commissions->where('status', 'paid')->sum('commission_amount'),
             ]
         ];
@@ -453,5 +453,89 @@ class AffiliateController extends Controller
                 'message' => 'Kesalahan server: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    public function updateBankInfo(Request $request)
+    {
+        $request->validate([
+            'bank_name' => 'required|string|max:255',
+            'account_number' => 'required|string|max:255',
+            'account_holder_name' => 'required|string|max:255',
+        ]);
+
+        $user = $request->user();
+        $affiliate = Affiliates::where('user_id', $user->id)->first();
+
+        if (!$affiliate) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda bukan affiliate.'
+            ], 403);
+        }
+
+        $affiliate->update([
+            'bank_name' => $request->bank_name,
+            'account_number' => $request->account_number,
+            'account_holder_name' => $request->account_holder_name,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Informasi rekening bank berhasil diperbarui.',
+            'data' => $affiliate
+        ]);
+    }
+
+    public function markWithdrawalAsPaid(string $id)
+    {
+        $withdrawal = WithdrawalRequest::with('affiliate')->find($id);
+
+        if (!$withdrawal) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Data tidak ditemukan.'
+            ], 404);
+        }
+
+        if ($withdrawal->status !== 'approved') {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Hanya penarikan berstatus approved yang bisa ditandai paid.'
+            ], 400);
+        }
+
+        $affiliate = $withdrawal->affiliate;
+
+        if (empty($affiliate->account_number) || empty($affiliate->bank_name) || empty($affiliate->account_holder_name)) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Data rekening mitra belum lengkap! Harap lengkapi Nama Bank, Nomor Rekening, dan Nama Pemilik Rekening di profil mitra terlebih dahulu.'
+            ], 400);
+        }
+
+        DB::transaction(function () use ($withdrawal, $affiliate) {
+            $withdrawal->status = 'paid';
+            $withdrawal->save();
+
+            if (str_contains($withdrawal->admin_note, 'Otomatis dari Pesanan')) {
+                $parts = explode(' ', $withdrawal->admin_note);
+                $invoiceNo = end($parts);
+                $order = \App\Models\Orders::where('invoice_no', $invoiceNo)->first();
+                if ($order) {
+                    \App\Models\AffiliateCommissions::where('order_id', $order->id)
+                        ->where('affiliate_id', $affiliate->id)
+                        ->update(['status' => 'paid']);
+                }
+            } else {
+                \App\Models\AffiliateCommissions::where('affiliate_id', $affiliate->id)
+                    ->where('status', 'approved')
+                    ->update(['status' => 'paid']);
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Status pencairan berhasil diubah menjadi PAID.'
+        ]);
     }
 }

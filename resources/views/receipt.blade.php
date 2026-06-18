@@ -72,14 +72,45 @@
     </style>
 </head>
 <body>
-    <div class="no-print" style="text-align: right; margin-bottom: 20px;">
-        <button onclick="window.print()" style="padding: 10px 20px; cursor: pointer; background: #333; color: #fff; border: none; font-weight: bold;">Cetak / Download PDF</button>
+    @if(session('error'))
+        <div class="no-print" style="max-width: 800px; margin: 20px auto; padding: 15px; background-color: #fde8e8; border: 1px solid #f8b4b4; color: #9b1c1c; border-radius: 8px; font-weight: bold; font-family: Arial, sans-serif;">
+            {{ session('error') }}
+        </div>
+    @endif
+
+    @if(session('success'))
+        <div class="no-print" style="max-width: 800px; margin: 20px auto; padding: 15px; background-color: #def7ec; border: 1px solid #bcf0da; color: #03543f; border-radius: 8px; font-weight: bold; font-family: Arial, sans-serif;">
+            {{ session('success') }}
+        </div>
+    @endif
+
+    <div class="no-print" style="max-width: 800px; margin: 20px auto; display: flex; justify-content: space-between; align-items: center; font-family: Arial, sans-serif;">
+        <div>
+            <a href="http://localhost:3000/affiliate" style="text-decoration: none; font-weight: bold; color: #555; font-size: 14px;">&larr; Kembali ke Admin</a>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            @if ($withdrawal->status === 'approved')
+                <form action="/affiliate/receipt/{{ $withdrawal->id }}/pay" method="POST" style="margin: 0;">
+                    @csrf
+                    <button type="submit" style="padding: 10px 20px; cursor: pointer; background: #28a745; color: #fff; border: none; font-weight: bold; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Tandai Sudah Dibayar</button>
+                </form>
+            @endif
+            <button onclick="window.print()" style="padding: 10px 20px; cursor: pointer; background: #007bff; color: #fff; border: none; font-weight: bold; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Cetak / Download PDF</button>
+        </div>
     </div>
     
     <div class="container">
         <div class="header">
             <h1>BUKTI TANDA TERIMA PENCAIRAN KOMISI</h1>
             <p>ID Request: REQ-{{ str_pad($withdrawal->id, 5, '0', STR_PAD_LEFT) }}</p>
+            <div style="margin-top: 10px; font-weight: bold; text-transform: uppercase;">
+                Status: 
+                @if($withdrawal->status === 'paid')
+                    <span style="color: #28a745;">Sudah Dibayar (PAID)</span>
+                @else
+                    <span style="color: #ffc107;">Disetujui (APPROVED)</span>
+                @endif
+            </div>
         </div>
 
         <div class="details">
@@ -95,10 +126,29 @@
                 </tr>
                 <tr>
                     <th>Bank / Rekening</th>
-                    <td>: {{ $withdrawal->affiliate->bank_name ?? '-' }} - {{ $withdrawal->affiliate->bank_account_number ?? '-' }}</td>
+                    <td>
+                        @php
+                            $bankName = ($withdrawal->bank_name && $withdrawal->bank_name !== '-') 
+                                ? $withdrawal->bank_name 
+                                : ($withdrawal->affiliate->bank_name ?? '-');
+                                
+                            $accountNumber = ($withdrawal->account_number && $withdrawal->account_number !== '-') 
+                                ? $withdrawal->account_number 
+                                : ($withdrawal->affiliate->account_number ?? '-');
+                                
+                            $accountHolder = ($withdrawal->affiliate->account_holder_name ?? null) 
+                                ? $withdrawal->affiliate->account_holder_name 
+                                : (($withdrawal->account_name && $withdrawal->account_name !== '-') ? $withdrawal->account_name : '');
+                        @endphp
+                        : {{ $bankName }} - {{ $accountNumber }}{{ $accountHolder ? " (a.n. $accountHolder)" : "" }}
+                    </td>
                 </tr>
                 <tr>
-                    <th>Tanggal Disetujui</th>
+                    <th>Tanggal Request</th>
+                    <td>: {{ $withdrawal->created_at->format('d F Y H:i') }}</td>
+                </tr>
+                <tr>
+                    <th>Tanggal Diupdate</th>
                     <td>: {{ $withdrawal->updated_at->format('d F Y H:i') }}</td>
                 </tr>
             </table>

@@ -124,8 +124,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/stats', [AffiliateController::class, 'getStats']);
         Route::get('/withdrawals', [AffiliateController::class, 'getWithdrawals']);
         Route::post('/withdrawals/{id}/status', [AffiliateController::class, 'updateWithdrawalStatus']);
+        Route::post('/withdrawals/{id}/pay', [AffiliateController::class, 'markWithdrawalAsPaid']);
         Route::get('/list', [AffiliateController::class, 'getAffiliateList']);
     });
+    
+    Route::post('/user/affiliate-bank', [AffiliateController::class, 'updateBankInfo']);
     
     // Chatbot route
     Route::post('/chat/assistant', [\App\Http\Controllers\Api\ChatbotController::class, 'handleChat']);
