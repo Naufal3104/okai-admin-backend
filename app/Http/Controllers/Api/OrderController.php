@@ -244,20 +244,37 @@ class OrderController extends Controller
             if ($pw->isEmpty()) return response()->json(['success' => false, 'message' => "Stok produk '{$product->name}' habis."], 400);
             
             $best = $pw->sortByDesc(fn($p) => (strtolower($p->warehouse->city ?? '') === strtolower($request->city) ? 100 : 0) + $p->stock)->first();
-            $warehouseGroups[$best->id_warehouse][] = $item;
+            $warehouseGroups[$best->id_warehouse][] = [
+                'product' => $product,
+                'qty' => $item['qty'],
+                'price' => $product->price
+            ];
         }
 
-        $firstWarehouseId = array_key_first($warehouseGroups);
-        $res = $this->fetchUnifiedShipping($firstWarehouseId, $request->city, $request->postal_code, $request->items);
+        $totalPrice = 0;
+        $estimatedDays = [];
+        $notes = [];
+
+        foreach ($warehouseGroups as $warehouseId => $items) {
+            $res = $this->fetchUnifiedShipping($warehouseId, $request->city, $request->postal_code, $items);
+            $totalPrice += $res['price'];
+            if (isset($res['etd']) && !in_array($res['etd'], $estimatedDays)) {
+                $estimatedDays[] = $res['etd'];
+            }
+            $note = $res['note'] ?? $res['courier'] ?? 'JNE REG';
+            if (!in_array($note, $notes)) {
+                $notes[] = $note;
+            }
+        }
 
         return response()->json([
             'success' => true,
             'data' => [
                 'courier' => 'JNE',
                 'service' => 'REG',
-                'price' => $res['price'],
-                'estimated_days' => $res['etd'] ?? '-',
-                'note' => $res['note'] ?? $res['courier']
+                'price' => $totalPrice,
+                'estimated_days' => !empty($estimatedDays) ? implode(', ', $estimatedDays) : '-',
+                'note' => !empty($notes) ? implode(' / ', $notes) : 'JNE REG'
             ]
         ]);
     }
@@ -352,34 +369,31 @@ class OrderController extends Controller
                 $ordersCreated[] = $order;
             }
 
-            // Untuk Xendit, kita buat invoice untuk total SEMUA order jika lebih dari satu? 
-            // Atau per order? Bisanya per order agar tracking gampang.
-            // Namun jika user bayar sekali, kita perlu menggabungkannya.
-            // Sederhananya, kita proses order pertama dulu untuk link pembayaran jika banyak, 
-            // tapi idealnya xendit mendukung multiple items.
-            
-            $firstOrder = $ordersCreated[0];
-            $totalAmount = collect($ordersCreated)->sum('total_price');
-
+            // Untuk Xendit, kita buat invoice terpisah untuk setiap order
             $paymentUrl = null;
             if ($request->payment_method !== 'cod') {
                 $secretKey = env('XENDIT_SECRET_KEY');
-                $xenditRes = Http::withHeaders(['Authorization' => 'Basic ' . base64_encode($secretKey . ':')])->post('https://api.xendit.co/v2/invoices', [
-                    'external_id' => $firstOrder->invoice_no, // Gunakan invoice pertama sebagai referensi utama
-                    'amount' => $totalAmount,
-                    'payer_email' => $request->user()->email,
-                    'description' => 'Pembayaran Pesanan OKAI (' . count($ordersCreated) . ' Gudang)',
-                    'invoice_duration' => 86400,
-                    'success_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/orders',
-                    'failure_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/checkout',
-                ]);
-                if ($xenditRes->successful()) {
-                    $paymentUrl = $xenditRes->json()['invoice_url'];
-                    foreach ($ordersCreated as $o) {
-                        $o->update(['payment_url' => $paymentUrl]);
+                
+                foreach ($ordersCreated as $index => $o) {
+                    $xenditRes = Http::withHeaders(['Authorization' => 'Basic ' . base64_encode($secretKey . ':')])->post('https://api.xendit.co/v2/invoices', [
+                        'external_id' => $o->invoice_no, 
+                        'amount' => $o->total_price,
+                        'payer_email' => $request->user()->email,
+                        'description' => 'Pembayaran Pesanan OKAI (' . $o->invoice_no . ')',
+                        'invoice_duration' => 86400,
+                        'success_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/orders/' . $o->id,
+                        'failure_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/checkout',
+                    ]);
+                    if ($xenditRes->successful()) {
+                        $orderPaymentUrl = $xenditRes->json()['invoice_url'];
+                        $o->update(['payment_url' => $orderPaymentUrl]);
+                        
+                        if ($index === 0) {
+                            $paymentUrl = $orderPaymentUrl;
+                        }
+                    } else {
+                        throw new \Exception("Gagal membuat tagihan Xendit untuk salah satu gudang."); 
                     }
-                } else {
-                    throw new \Exception("Gagal membuat tagihan Xendit."); 
                 }
             } else {
                 // Jika COD, kurangi stok langsung agar stok aman (reservasi).
@@ -390,10 +404,15 @@ class OrderController extends Controller
                 }
             }
 
+            // Load warehouse relations so the frontend knows the warehouse details
+            foreach ($ordersCreated as $o) {
+                $o->load('warehouse');
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Pesanan berhasil dibuat!',
-                'data' => $firstOrder,
+                'data' => $ordersCreated[0],
                 'payment_url' => $paymentUrl,
                 'orders' => $ordersCreated
             ], 201);
@@ -410,6 +429,10 @@ class OrderController extends Controller
                 if ($pw && $pw->stock >= $item->quantity) {
                     $pw->decrement('stock', $item->quantity);
                 }
+
+                // Sync global product stock
+                $totalStock = \App\Models\ProductWarehouses::where('id_product', $item->product_id)->sum('stock');
+                \App\Models\Products::where('id', $item->product_id)->update(['stock' => $totalStock]);
             }
         }
     }
@@ -420,7 +443,10 @@ class OrderController extends Controller
             DB::transaction(function () use ($order) {
                 $order->status = 'paid';
                 $order->save();
-                $this->reduceStock($order);
+                // Only reduce stock if it's not a COD order (since COD stock is reduced on creation)
+                if (strtolower($order->payment_method) !== 'cod') {
+                    $this->reduceStock($order);
+                }
                 $this->calculateAffiliateCommission($order);
             });
         }
@@ -485,8 +511,15 @@ class OrderController extends Controller
     protected function processOrderDelivered($order)
     {
         DB::transaction(function () use ($order) {
+            $isBypassed = ($order->status === 'pending');
+
             $order->status = 'delivered';
             $order->save();
+
+            // If it bypassed paid status and is NOT a COD order, reduce stock now
+            if ($isBypassed && strtolower($order->payment_method) !== 'cod') {
+                $this->reduceStock($order);
+            }
 
             // 1. Update status komisi menjadi 'approved' (bukan 'completed' yang tidak ada di enum)
             $commissions = \App\Models\AffiliateCommissions::where('order_id', $order->id)->get();

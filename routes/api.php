@@ -50,7 +50,7 @@ Route::get('/homepage', [\App\Http\Controllers\Api\HomepageController::class, 'i
 // ==========================================
 // 🔒 JALUR VIP / KHUSUS (Wajib Login & Bawa Token)
 // ==========================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'role:super_admin,admin,customer'])->group(function () {
 
     Route::post('/shipping/rate', [\App\Http\Controllers\Api\OrderController::class, 'getShippingRate']);
 

@@ -15,19 +15,19 @@ class AnalyticsController extends Controller
         $totalCustomers = DB::table('users')->count();
         
         // Menghitung akumulasi pemasukan dan jumlah pesanan yang sudah lunas ('paid')
-        $totalRevenue = DB::table('orders')->where('status', 'paid')->sum('total_price') ?? 0;
-        $totalOrders = DB::table('orders')->where('status', 'paid')->count();
+        $totalRevenue = DB::table('orders')->whereIn('status', ['paid', 'shipped', 'delivered'])->sum('total_price') ?? 0;
+        $totalOrders = DB::table('orders')->whereIn('status', ['paid', 'shipped', 'delivered'])->count();
         $avgOrderValue = $totalOrders > 0 ? ($totalRevenue / $totalOrders) : 0;
 
         // TOTAL PRODUK TERJUAL: Menghitung total quantity item dari order_items yang transaksinya lunas
         $totalItemsSold = DB::table('order_items')
             ->join('orders', 'order_items.order_id', '=', 'orders.id')
-            ->where('orders.status', 'paid')
+            ->whereIn('orders.status', ['paid', 'shipped', 'delivered'])
             ->sum('order_items.quantity') ?? 0;
 
         // PENJUALAN MITRA: Menghitung pesanan lunas yang berasal dari link affiliate atau dropship
         $affiliateSales = DB::table('orders')
-            ->where('status', 'paid')
+            ->whereIn('status', ['paid', 'shipped', 'delivered'])
             ->where(function ($query) {
                 $query->whereNotNull('affiliate_id')
                       ->orWhere('is_dropship', 1);
@@ -39,7 +39,7 @@ class AnalyticsController extends Controller
             $start = Carbon::now()->subWeeks($i)->startOfWeek();
             $end = Carbon::now()->subWeeks($i)->endOfWeek();
             $rev = DB::table('orders')
-                ->where('status', 'paid')
+                ->whereIn('status', ['paid', 'shipped', 'delivered'])
                 ->whereBetween('created_at', [$start, $end])
                 ->sum('total_price') ?? 0;
             

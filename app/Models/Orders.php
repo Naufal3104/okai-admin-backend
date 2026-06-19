@@ -54,4 +54,9 @@ class Orders extends Model
     public function order_items() {
         return $this->hasMany(OrderItems::class, 'order_id');
     }
+
+    public function warehouse() {
+        return $this->belongsTo(Warehouses::class, 'warehouse_id');
+    }
 }
+

@@ -12,10 +12,10 @@ class DashboardController extends Controller
     {
         try {
             // 1. TOP STATS
-            $revenue = DB::table('orders')->where('status', 'paid')->sum('total_price') ?? 0;
+            $revenue = DB::table('orders')->whereIn('status', ['paid', 'shipped', 'delivered'])->sum('total_price') ?? 0;
             
             // Asumsi komisi affiliate = 10% dari total pesanan affiliate yang lunas (Bisa disesuaikan nanti)
-            $affiliateRevenue = DB::table('orders')->whereNotNull('affiliate_id')->where('status', 'paid')->sum('total_price') ?? 0;
+            $affiliateRevenue = DB::table('orders')->whereNotNull('affiliate_id')->whereIn('status', ['paid', 'shipped', 'delivered'])->sum('total_price') ?? 0;
             $komisiAfiliasi = $affiliateRevenue * 0.10; 
 
             $totalStock = DB::table('product_warehouses')->sum('stock') ?? 0;
@@ -29,7 +29,7 @@ class DashboardController extends Controller
                 $start = Carbon::now()->subMonths($i)->startOfMonth();
                 $end = Carbon::now()->subMonths($i)->endOfMonth();
                 $rev = DB::table('orders')
-                    ->where('status', 'paid')
+                    ->whereIn('status', ['paid', 'shipped', 'delivered'])
                     ->whereBetween('created_at', [$start, $end])
                     ->sum('total_price') ?? 0;
                 

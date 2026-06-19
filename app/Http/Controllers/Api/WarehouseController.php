@@ -176,6 +176,10 @@ class WarehouseController extends Controller
             $message = 'Produk berhasil ditambahkan ke gudang dengan stok awal.';
         }
 
+        // Sync global product stock
+        $totalStock = ProductWarehouses::where('id_product', $id_product)->sum('stock');
+        \App\Models\Products::where('id', $id_product)->update(['stock' => $totalStock]);
+
         return response()->json([
             'success' => true,
             'message' => $message
