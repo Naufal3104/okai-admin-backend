@@ -343,6 +343,11 @@ class OrderController extends Controller
                 // Bagi rata diskon jika ada lebih dari 1 order (opsional, untuk sekarang kita taruh di order pertama saja)
                 $currentDiscount = (count($ordersCreated) === 0) ? ($request->discount_amount ?? 0) : 0;
 
+                $courierStr = $shipRes['courier'] ?? 'JNE REG';
+                $courierParts = explode(' ', $courierStr);
+                $courierCompany = $courierParts[0] ?? 'JNE';
+                $courierType = $courierParts[1] ?? 'REG';
+
                 $order = Orders::create([
                     'invoice_no' => 'INV-' . date('Ymd') . '-' . rand(1000, 9999), 
                     'user_id' => $userId, 
@@ -357,7 +362,8 @@ class OrderController extends Controller
                     'warehouse_id' => $warehouseId,
                     'is_dropship' => $isDropship,
                     'dropshipper_name' => $isDropship ? $request->dropshipper_name : null,
-                    'courier_company' => $shipRes['courier'] ?? 'JNE REG'
+                    'courier_company' => $courierCompany,
+                    'courier_type' => $courierType
                 ]);
 
                 foreach ($items as $item) {
