@@ -177,23 +177,30 @@ class UserController extends Controller
         }
     }
 
-    public function index(Request $request) // Tambahkan Request di sini
+    public function index(Request $request)
     {
         // 1. Tangkap kata kunci pencarian dari React
         $search = $request->query('search');
 
-        // 2. Tarik data: Saring berdasarkan nama atau email jika ada kata kunci
-        $users = User::when($search, function ($query, $search) {
-            return $query->where('name', 'like', '%' . $search . '%')
-                ->orWhere('email', 'like', '%' . $search . '%');
-        })->orderBy('id', 'desc')->get();
+        // 2. Tarik data: Hanya ambil user dengan role super_admin atau admin
+        // Serta saring berdasarkan nama atau email jika ada kata kunci search
+        $users = User::role(['super_admin', 'admin'])
+            ->when($search, function ($query, $search) {
+                return $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('email', 'like', '%' . $search . '%');
+                });
+            })
+            ->orderBy('id', 'desc')
+            ->get();
 
-        // 3. Format data (Kode Anda sebelumnya tetap sama persis)
+        // 3. Format data untuk kebutuhan Frontend
         $formattedUsers = $users->map(function ($user) {
             return [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                // Menampilkan nama role pertama dengan format yang rapi (Contoh: Super Admin)
                 'role' => ucwords(str_replace('_', ' ', $user->getRoleNames()->first() ?? 'No Role')),
                 'status' => 'Active',
                 'joined' => $user->created_at ? $user->created_at->format('d M Y') : 'Unknown',
@@ -268,6 +275,8 @@ class UserController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $id,
             'password' => 'nullable|string|min:8',
+            'phone_number' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
             'role' => 'sometimes|required|string|in:admin,customer,affiliate,superadmin',
         ]);
 

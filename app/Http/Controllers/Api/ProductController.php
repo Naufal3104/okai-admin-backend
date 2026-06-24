@@ -27,17 +27,26 @@ class ProductController extends Controller
                 'sku' => $product->sku ?? 'NO-SKU',
                 'name' => $product->name,
                 'category' => $product->category ?? 'General',
-
-                // FIX 1: Kirim angka mentah saja (tanpa Rp), biar React yang format
                 'price' => $product->price,
-
-                'stock' => $product->stock,
-                'warehouse' => $product->warehouse ?? 'Gudang Utama (Surabaya)',
+                'stock' => $product->warehouseStocks()->max('stock') ?? 0, // 🚩 UBAH: Hanya menampilkan stok terbanyak dari 1 gudang
                 'status' => $product->is_active ? 'Published' : 'Draft',
-
-                // FIX 2: Tambahkan image_url dan description agar bisa ditarik oleh Katalog
                 'image_url' => $product->image_url,
                 'description' => $product->description,
+                'is_affiliate_enabled' => (bool) $product->is_affiliate_enabled,
+                
+                // Dimensions
+                'weight' => $product->weight,
+                'length' => $product->length,
+                'width' => $product->width,
+                'height' => $product->height,
+
+                // 👇 FORMAT DROPSHIP 👇
+                'commission_type' => $product->commission_type, 
+                'commission_value' => $product->commission_value,
+                'is_dropship_enabled' => (bool) $product->is_dropship_enabled,
+                'dropship_min_qty' => $product->dropship_min_qty,
+                'dropship_discount_type' => $product->dropship_discount_type,
+                'dropship_discount_value' => $product->dropship_discount_value,
             ];
         });
 
@@ -46,6 +55,7 @@ class ProductController extends Controller
             'data' => $formattedProducts
         ], 200);
     }
+
     // 2. Simpan Produk Baru (Store)
     public function store(Request $request)
     {
@@ -53,13 +63,23 @@ class ProductController extends Controller
             'name' => 'required|string|max:255',
             'sku' => 'nullable|string|unique:products,sku',
             'category' => 'required|string',
-            'warehouse' => 'required|string',
             'price' => 'required|numeric',
-            'stock' => 'required|integer',
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'boolean'
+            'is_active' => 'boolean',
+            'is_affiliate_enabled' => 'in:0,1,true,false',
+            // 👇 VALIDASI FORMAT BARU 👇
+            'commission_type' => 'nullable|string|in:percent,fixed',
+            'commission_value' => 'nullable|numeric|min:0',
+            'is_dropship_enabled' => 'boolean',
+            'dropship_min_qty' => 'nullable|integer|min:1',
+            'dropship_discount_type' => 'nullable|string|in:percent,fixed',
+            'dropship_discount_value' => 'nullable|numeric|min:0',
+            'weight' => 'required|numeric|min:0',
+            'length' => 'required|numeric|min:0',
+            'width' => 'required|numeric|min:0',
+            'height' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -83,11 +103,12 @@ class ProductController extends Controller
             $finalImageUrl = $validatedData['image_url'];
         }
 
-        // Hapus image_file biar DB gak bingung
         unset($validatedData['image_file']);
-
-        // Simpan ke kolom image_url
         $validatedData['image_url'] = $finalImageUrl;
+
+        // 👇 SETTING DEFAULT KOMISI JIKA KOSONG 👇
+        $validatedData['commission_type'] = $request->input('commission_type', 'percent');
+        $validatedData['commission_value'] = $request->input('commission_value', 0);
 
         $product = Products::create($validatedData);
 
@@ -97,6 +118,7 @@ class ProductController extends Controller
             'data' => $product
         ], 201);
     }
+
     // 3. Tampilkan Satu Produk (Show)
     public function show($id)
     {
@@ -106,9 +128,12 @@ class ProductController extends Controller
             return response()->json(['success' => false, 'message' => 'Produk tidak ditemukan'], 404);
         }
 
+        $data = $product->toArray();
+        $data['stock'] = $product->warehouseStocks()->max('stock') ?? 0; // 🚩 UBAH: Hanya menampilkan stok terbanyak dari 1 gudang
+
         return response()->json([
             'success' => true,
-            'data' => $product
+            'data' => $data
         ], 200);
     }
 
@@ -123,16 +148,25 @@ class ProductController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            // Ignore pengecekan unique untuk ID produk ini sendiri
             'sku' => 'nullable|string|unique:products,sku,' . $id, 
             'category' => 'required|string',
-            'warehouse' => 'required|string',
             'price' => 'required|numeric',
-            'stock' => 'required|integer',
             'description' => 'nullable|string',
             'image_url' => 'nullable|string',
             'image_file' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:2048',
-            'is_active' => 'boolean'
+            'is_active' => 'in:0,1,true,false', 
+            'is_affiliate_enabled' => 'in:0,1,true,false', 
+            // 👇 VALIDASI FORMAT BARU 👇
+            'commission_type' => 'nullable|string|in:percent,fixed',
+            'commission_value' => 'nullable|numeric|min:0',
+            'is_dropship_enabled' => 'boolean',
+            'dropship_min_qty' => 'nullable|integer|min:1',
+            'dropship_discount_type' => 'nullable|string|in:percent,fixed',
+            'dropship_discount_value' => 'nullable|numeric|min:0',
+            'weight' => 'required|numeric|min:0',
+            'length' => 'required|numeric|min:0',
+            'width' => 'required|numeric|min:0',
+            'height' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -140,25 +174,48 @@ class ProductController extends Controller
         }
 
         $validatedData = $validator->validated();
-
-        // Default: pakai gambar yang udah ada di DB
+        
+        // --- LOGIKA GAMBAR ---
         $finalImageUrl = $product->image_url;
 
-        // --- LOGIKA GAMBAR ---
         if ($request->hasFile('image_file')) {
-            // Kalau user upload foto fisik baru
             $file = $request->file('image_file');
             $path = $file->store('products', 'public');
             $finalImageUrl = asset('storage/' . $path);
         } elseif (isset($validatedData['image_url'])) {
-            // Kalau user milih dari galeri
             $finalImageUrl = $validatedData['image_url'];
         }
 
-        unset($validatedData['image_file']);
-        $validatedData['image_url'] = $finalImageUrl;
+        // --- UPDATE DATA MANUAL (Anti Gagal) ---
+        $product->name = $validatedData['name'];
+        $product->sku = $validatedData['sku'] ?? $product->sku;
+        $product->category = $validatedData['category'];
+        $product->price = $validatedData['price'];
+        $product->description = $validatedData['description'] ?? '';
+        $product->image_url = $finalImageUrl;
+        
+        // Dimensions
+        $product->weight = $validatedData['weight'];
+        $product->length = $validatedData['length'];
+        $product->width = $validatedData['width'];
+        $product->height = $validatedData['height'];
 
-        $product->update($validatedData);
+        // Trik konversi string "1"/"0" dari Frontend menjadi integer untuk MySQL
+        $product->is_active = in_array($request->input('is_active'), [1, '1', true, 'true'], true) ? 1 : 0;
+        $product->is_affiliate_enabled = in_array($request->input('is_affiliate_enabled'), [1, '1', true, 'true'], true) ? 1 : 0;
+        
+        // 👇 SIMPAN NILAI KOMISI BARU 👇
+        $product->commission_type = $request->input('commission_type', 'percent');
+        $product->commission_value = $request->input('commission_value', 0);
+
+        // 👇 SIMPAN NILAI DROPSHIP 👇
+        $product->is_dropship_enabled = in_array($request->input('is_dropship_enabled'), [1, '1', true, 'true'], true) ? 1 : 0;
+        $product->dropship_min_qty = $request->input('dropship_min_qty', 1);
+        $product->dropship_discount_type = $request->input('dropship_discount_type', 'percent');
+        $product->dropship_discount_value = $request->input('dropship_discount_value', 0);
+
+        // Eksekusi Simpan ke DB
+        $product->save();
 
         return response()->json([
             'success' => true,

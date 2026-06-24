@@ -33,14 +33,6 @@ class PromotionController extends Controller
     }
 
     /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
-    }
-
-    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -69,15 +61,13 @@ class PromotionController extends Controller
      */
     public function show(string $id)
     {
-        //
-    }
+        $promotion = Promotions::where('id_promotion', $id)->first();
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
+        if (!$promotion) {
+            return response()->json(['success' => false, 'message' => 'Data Promosi tidak ditemukan.'], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $promotion], 200);
     }
 
     /**
@@ -85,7 +75,9 @@ class PromotionController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        $promotion = Promotions::find($id);
+        // 🚩 BUG FIX: Menggunakan where agar selaras dengan primary key kustom
+        $promotion = Promotions::where('id_promotion', $id)->first();
+        
         if (!$promotion) {
             return response()->json(['success' => false, 'message' => 'Promo tidak ditemukan'], 404);
         }
@@ -114,11 +106,65 @@ class PromotionController extends Controller
      */
     public function destroy(string $id)
     {
-        $promotion = Promotions::find($id);
+        // 🚩 BUG FIX: Menggunakan where
+        $promotion = Promotions::where('id_promotion', $id)->first();
+        
         if (!$promotion) {
             return response()->json(['success' => false, 'message' => 'Promo tidak ditemukan'], 404);
         }
         $promotion->delete();
         return response()->json(['success' => true, 'message' => 'Promo dihapus'], 200);
+    }
+
+    /**
+     * ========================================================
+     * FITUR BARU: Mengecek Kupon dari Halaman Checkout React
+     * ========================================================
+     */
+    public function check(Request $request)
+    {
+        $request->validate([
+            'code' => 'required|string'
+        ]);
+
+        $code = strtoupper(trim($request->code));
+        $promo = Promotions::where('code', $code)->first();
+
+        // 1. Cek apakah kupon ada
+        if (!$promo) {
+            return response()->json(['success' => false, 'message' => 'Kode kupon tidak valid atau tidak ditemukan.'], 404);
+        }
+
+        // 2. Cek apakah status kupon aktif
+        if (!$promo->is_active) {
+            return response()->json(['success' => false, 'message' => 'Kode kupon ini sedang dinonaktifkan.'], 400);
+        }
+
+        // 3. Cek Masa Berlaku (Tanggal)
+        $today = date('Y-m-d');
+        if ($promo->start_date && $today < $promo->start_date) {
+            return response()->json(['success' => false, 'message' => 'Kupon ini belum bisa digunakan saat ini.'], 400);
+        }
+        if ($promo->end_date && $today > $promo->end_date) {
+            return response()->json(['success' => false, 'message' => 'Masa berlaku kupon ini sudah habis.'], 400);
+        }
+
+        // 4. Cek Kuota Pemakaian
+        if ($promo->max_usage > 0 && $promo->used_count >= $promo->max_usage) {
+            return response()->json(['success' => false, 'message' => 'Kuota penggunaan kupon ini telah habis.'], 400);
+        }
+
+        // 5. Susun format balasan yang dimengerti oleh React
+        return response()->json([
+            'success' => true,
+            'message' => 'Kupon berhasil diterapkan!',
+            'data' => [
+                'id' => $promo->id_promotion,
+                'code' => $promo->code,
+                // Ubah format string agar sesuai dengan logika React ('percent' atau 'fixed')
+                'discount_type' => $promo->type === 'percentage' ? 'percent' : 'fixed',
+                'discount_value' => $promo->value,
+            ]
+        ], 200);
     }
 }

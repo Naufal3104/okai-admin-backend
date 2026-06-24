@@ -10,8 +10,28 @@ class Products extends Model
     use HasFactory;
     protected $table = 'products';
 
-    protected $fillable = ['sku', 'name', 'category', 'description', 'price', 'stock', 'warehouse', 'image_url', 'is_active'];
-
+    protected $fillable = [
+        'sku',
+        'name',
+        'category',
+        'description',
+        'price',
+        'stock',
+        'warehouse',
+        'image_url',
+        'is_active',
+        'is_affiliate_enabled',
+        'commission_type',   // 👉 Masukkan ini
+        'commission_value',  // 👉 Masukkan ini
+        'is_dropship_enabled',
+        'dropship_min_qty',
+        'dropship_discount_type',
+        'dropship_discount_value',
+        'weight',
+        'length',
+        'width',
+        'height',
+        ];
     // Relasi: Satu produk bisa ada di banyak gudang
     public function warehouseStocks() {
         return $this->hasMany(ProductWarehouses::class, 'id_product');

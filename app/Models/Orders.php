@@ -11,14 +11,23 @@ class Orders extends Model
     protected $table = 'orders';
 
     protected $fillable = [
-        'user_id', 
         'invoice_no',
-        'total_price', 
-        'address', 
-        'payment_method', 
-        'status', 
-        'affiliate_id', 
-        'id_promotion'
+        'user_id',
+        'affiliate_id',
+        'total_price',
+        'address',
+        'payment_method',
+        'payment_url',
+        'status',
+        'id_promotion',
+        'discount_amount',
+        'courier_company',
+        'courier_type',
+        'shipping_cost',
+        'waybill_id',
+        'warehouse_id',
+        'is_dropship',
+        'dropshipper_name',
     ];
 
     public function user() {
@@ -29,6 +38,11 @@ class Orders extends Model
         return $this->belongsTo(Promotions::class, 'id_promotion');
     }
 
+    public function affiliate()
+    {
+        return $this->belongsTo(Affiliates::class, 'affiliate_id');
+    }
+
     public function invoice() {
         return $this->hasOne(Invoices::class, 'id_order');
     }
@@ -36,4 +50,13 @@ class Orders extends Model
     public function items() {
         return $this->hasMany(OrderItems::class, 'order_id');
     }
+
+    public function order_items() {
+        return $this->hasMany(OrderItems::class, 'order_id');
+    }
+
+    public function warehouse() {
+        return $this->belongsTo(Warehouses::class, 'warehouse_id');
+    }
 }
+
