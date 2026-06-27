@@ -293,6 +293,18 @@ class OrderController extends Controller
             'dropshipper_name' => 'nullable|string'
         ]);
 
+        if ($request->filled('affiliate_code')) {
+            foreach ($request->items as $item) {
+                $prod = Products::find($item['product_id']);
+                if ($prod && !$prod->is_affiliate_enabled) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Produk '{$prod->name}' tidak terbuka untuk program afiliasi. Kode referral tidak dapat digunakan."
+                    ], 400);
+                }
+            }
+        }
+
         return DB::transaction(function () use ($request) {
             $userId = $request->user()->id;
 
@@ -511,6 +523,31 @@ class OrderController extends Controller
         $originalId = end($parts);
         $order = Orders::with(['user', 'items.product', 'promotion'])->where('id', $originalId)->orWhere('invoice_no', $id)->first();
         if (!$order) return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+
+        // Sync payment status with Xendit if order is pending and not COD
+        if ($order->status === 'pending' && strtolower($order->payment_method) !== 'cod' && $order->invoice_no) {
+            try {
+                $secretKey = env('XENDIT_SECRET_KEY');
+                $xenditCheck = Http::withHeaders([
+                    'Authorization' => 'Basic ' . base64_encode($secretKey . ':')
+                ])->get("https://api.xendit.co/v2/invoices?external_id=" . $order->invoice_no);
+
+                if ($xenditCheck->successful()) {
+                    $invoices = $xenditCheck->json();
+                    if (!empty($invoices)) {
+                        $xenditInvoice = $invoices[0];
+                        if ($xenditInvoice['status'] === 'PAID' || $xenditInvoice['status'] === 'SETTLED') {
+                            $this->processOrderPaid($order);
+                            $order->refresh();
+                        } elseif ($xenditInvoice['status'] === 'EXPIRED') {
+                            $order->status = 'cancelled';
+                            $order->save();
+                        }
+                    }
+                }
+            } catch (\Exception $e) {}
+        }
+
         return response()->json(['success' => true, 'data' => $order]);
     }
 
@@ -706,7 +743,10 @@ class OrderController extends Controller
         $order = Orders::find($id);
         if (!$order || $order->status !== 'paid') return response()->json(['success' => false, 'message' => 'Gagal memproses.'], 400);
         $request->validate(['awb_number' => 'required|string', 'courier_company' => 'required|string']);
-        $order->status = 'shipped'; $order->awb_number = $request->awb_number; $order->courier_company = $request->courier_company; $order->save();
+        $order->status = 'shipped'; 
+        $order->waybill_id = $request->awb_number; 
+        $order->courier_company = $request->courier_company; 
+        $order->save();
         return response()->json(['success' => true, 'message' => 'Berhasil diperbarui!']);
     }
 
@@ -799,5 +839,66 @@ class OrderController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Terjadi kesalahan sistem: ' . $e->getMessage()], 500);
         }
+    }
+
+    public function recreateInvoice(Request $request, $id)
+    {
+        $parts = explode('-', $id);
+        $originalId = end($parts);
+        
+        $order = Orders::where('id', $originalId)->orWhere('invoice_no', $id)->first();
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Pesanan tidak ditemukan'], 404);
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json(['success' => false, 'message' => 'Hanya pesanan pending yang bisa diperbarui pembayarannya.'], 400);
+        }
+
+        $request->validate([
+            'payment_method' => 'required|string'
+        ]);
+
+        $paymentMethod = $request->payment_method;
+
+        // Recreate Xendit Invoice
+        $secretKey = env('XENDIT_SECRET_KEY');
+
+        // Map method to Xendit parameter
+        $payload = [
+            'external_id' => $order->invoice_no, 
+            'amount' => $order->total_price,
+            'payer_email' => $request->user()->email ?? $order->user->email,
+            'description' => 'Pembayaran Pesanan OKAI (' . $order->invoice_no . ')',
+            'invoice_duration' => 86400,
+            'success_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/orders/' . $order->id,
+            'failure_redirect_url' => env('FRONTEND_URL', 'http://localhost:3000') . '/checkout',
+        ];
+
+        $specificMethods = ['BCA', 'MANDIRI', 'BNI', 'BRI', 'PERMATA', 'CREDIT_CARD', 'DANA', 'OVO', 'LINKAJA', 'SHOPEEPAY', 'QRIS', 'ALFAMART', 'INDOMARET', 'BCA_KLIKPAY', 'BRI_DIRECT_DEBIT'];
+        $upperMethod = strtoupper($paymentMethod);
+        if (in_array($upperMethod, $specificMethods)) {
+            $payload['payment_methods'] = [$upperMethod];
+        }
+
+        $xenditRes = Http::withHeaders(['Authorization' => 'Basic ' . base64_encode($secretKey . ':')])->post('https://api.xendit.co/v2/invoices', $payload);
+        
+        if ($xenditRes->successful()) {
+            $orderPaymentUrl = $xenditRes->json()['invoice_url'];
+            $order->update([
+                'payment_url' => $orderPaymentUrl,
+                'payment_method' => $paymentMethod
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'payment_url' => $orderPaymentUrl
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal memperbarui tagihan Xendit.'
+        ], 500);
     }
 }
