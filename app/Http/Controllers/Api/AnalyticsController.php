@@ -45,17 +45,20 @@ class AnalyticsController extends Controller
         }
         $totalItemsSold = $itemsSoldQuery->sum('order_items.quantity') ?? 0;
 
-        // PENJUALAN MITRA: Menghitung pesanan lunas yang berasal dari link affiliate atau dropship
-        $affiliateSalesQuery = DB::table('orders')
+        // --- REVISI DI SINI ---
+        // AFFILIATE REVENUE: Menghitung total nominal uang (sum total_price) dari transaksi afiliasi/dropship yang lunas
+        $affiliateRevenueQuery = DB::table('orders')
             ->whereIn('status', ['paid', 'shipped', 'delivered'])
             ->where(function ($query) {
                 $query->whereNotNull('affiliate_id')
                       ->orWhere('is_dropship', 1);
             });
         if ($dateLimit) {
-            $affiliateSalesQuery->where('created_at', '>=', $dateLimit);
+            $affiliateRevenueQuery->where('created_at', '>=', $dateLimit);
         }
-        $affiliateSales = $affiliateSalesQuery->count();
+        // Diganti dari count() menjadi sum('total_price') agar menghasilkan nominal uang
+        $affiliateRevenue = $affiliateRevenueQuery->sum('total_price') ?? 0;
+        // ----------------------
 
         // 2. REVENUE CHART (Grafik Pendapatan)
         $revenueData = [];
@@ -168,7 +171,7 @@ class AnalyticsController extends Controller
                 'stats' => [
                     'total_items_sold' => (int) $totalItemsSold, 
                     'avg_order_value' => $avgOrderValue,
-                    'affiliate_sales' => $affiliateSales, 
+                    'affiliate_revenue' => (int) $affiliateRevenue, // Nama key diubah dari affiliate_sales menjadi affiliate_revenue
                     'new_customers' => $totalCustomers
                 ],
                 'revenue_chart' => $revenueData,

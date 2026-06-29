@@ -95,6 +95,50 @@ class OrderController extends Controller
         ], 200);
     }
 
+    // 👇 INI FUNGSI YANG BARU DITAMBAHKAN UNTUK LOGISTICS REACT
+    public function getActiveShipments(Request $request)
+    {
+        $query = Orders::with(['user', 'items.product'])
+            ->whereIn('status', ['pending', 'paid', 'shipped'])
+            ->orderBy('updated_at', 'desc');
+
+        $user = $request->user();
+        $adminRoles = ['superadmin', 'super_admin', 'administrator'];
+
+        // Samakan filter role-nya dengan yang ada di fungsi index
+        if ($user->hasRole('admin')) {
+            $warehouseId = $user->warehouse->id_warehouse ?? null;
+            $query->where('warehouse_id', $warehouseId);
+        } elseif (!$user->hasAnyRole($adminRoles)) {
+            $query->where('user_id', $user->id);
+        }
+
+        $activeOrders = $query->get();
+
+        $formattedShipments = $activeOrders->map(function ($order) {
+            $itemName = $order->items->map(function ($item) {
+                return $item->product ? $item->product->name : 'Produk Dihapus';
+            })->implode(', ');
+
+            return [
+                'id' => $order->id,
+                // Cari resi yang ada, kalau kosong pakai ID pesanan
+                'resi' => $order->awb_number ?? $order->waybill_id ?? $order->invoice_no, 
+                'invoice_no' => $order->invoice_no,
+                'item' => $itemName ?: 'Paket Barang',
+                'customer' => $order->user ? $order->user->name : 'Guest/Deleted',
+                'status' => ucfirst($order->status),
+                'lastLocation' => 'Menunggu update kurir...',
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $formattedShipments
+        ], 200);
+    }
+    // 👆 BATAS FUNGSI BARU
+
     // --- HELPER LOGIKA ONGKIR ---
 
     protected function getBinderbyteRegionId($apiKey, $cityName)
