@@ -71,6 +71,7 @@ Route::middleware(['auth:sanctum', 'role:super_admin,admin,customer'])->group(fu
     Route::apiResource('orders', OrderController::class);
     Route::get('/orders/{id}/available-warehouses', [OrderController::class, 'getAvailableWarehouses']);
     Route::post('/orders/{id}/mark-paid', [OrderController::class, 'markAsPaid']);
+    Route::post('/orders/{id}/recreate-invoice', [OrderController::class, 'recreateInvoice']);
     Route::post('/orders/{id}/ship', [OrderController::class, 'shipWithBiteship']);
     Route::post('/orders/{id}/ship-manual', [OrderController::class, 'shipManual']);
     Route::post('/orders/{id}/simulate-delivery', [OrderController::class, 'simulateDelivery']);

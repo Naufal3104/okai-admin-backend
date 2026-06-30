@@ -132,17 +132,23 @@ class UserController extends Controller
         ], 200);
     }
 
-    public function getGoogleUrl()
+    public function getGoogleUrl(Request $request)
     {
+        $origin = $request->query('origin', 'admin');
         // Gunakan stateless() karena ini adalah API untuk React
-        $url = Socialite::driver('google')->stateless()->redirect()->getTargetUrl();
+        $url = Socialite::driver('google')
+            ->stateless()
+            ->with(['state' => 'origin=' . $origin])
+            ->redirect()
+            ->getTargetUrl();
+
         return response()->json([
             'url' => $url
         ]);
     }
 
     // Fungsi 2: Pintu masuk kembalinya pengguna dari Google
-    public function handleGoogleCallback()
+    public function handleGoogleCallback(Request $request)
     {
         try {
             // Tangkap data pengguna dari Google
@@ -168,10 +174,45 @@ class UserController extends Controller
             // Masukkan pengguna ke dalam sesi sistem (Login)
             Auth::login($user);
 
+            // Cek origin dari parameter state
+            $state = $request->input('state');
+            $origin = 'admin';
+            if ($state) {
+                parse_str($state, $stateParams);
+                $origin = $stateParams['origin'] ?? 'admin';
+            }
+
+            if ($origin === 'store') {
+                // Buat token Sanctum untuk digunakan oleh store frontend
+                $token = $user->createToken('store_token')->plainTextToken;
+                $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+                
+                $userData = [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                ];
+
+                return redirect($frontendUrl . '/login?token=' . urlencode($token) . '&user=' . urlencode(json_encode($userData)));
+            }
+
             // Perintahkan peramban (browser) untuk kembali ke halaman Dashboard React
             // Sesuaikan port 5173 dengan port React Anda
             return redirect('http://localhost:5173/dashboard');
         } catch (\Exception $e) {
+            // Cek origin dari parameter state untuk penanganan error
+            $state = $request->input('state');
+            $origin = 'admin';
+            if ($state) {
+                parse_str($state, $stateParams);
+                $origin = $stateParams['origin'] ?? 'admin';
+            }
+
+            if ($origin === 'store') {
+                $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+                return redirect($frontendUrl . '/login?error=google_failed');
+            }
+
             // Jika batal atau gagal, kembalikan ke halaman login dengan pesan error
             return redirect('http://localhost:5173/login?error=google_failed');
         }

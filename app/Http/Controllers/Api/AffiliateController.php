@@ -168,10 +168,19 @@ class AffiliateController extends Controller
 
     public function getAffiliateList()
     {
-        $affiliates = Affiliates::orderBy('created_at', 'desc')->get();
+        $affiliates = Affiliates::with('socialMedia')->orderBy('created_at', 'desc')->get();
+        
+        $data = $affiliates->map(function ($aff) {
+            $firstSocial = $aff->socialMedia->first();
+            $aff->setAttribute('social_platform', $firstSocial ? $firstSocial->platform : '-');
+            $aff->setAttribute('social_username', $firstSocial ? $firstSocial->username : '-');
+            $aff->setAttribute('promotional_plan', $firstSocial ? $firstSocial->promotion_plan : '-');
+            return $aff;
+        });
+
         return response()->json([
             'success' => true,
-            'data' => $affiliates
+            'data' => $data
         ]);
     }
 
